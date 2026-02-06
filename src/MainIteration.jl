@@ -6,11 +6,11 @@
     """
 
 
-    using PBCCompiler: CircuitOp
+    using PBCCompiler: Pauli
     using QuantumClifford: comm, embed
 
     #I need a function to check commutation between the Pauli string of two CircuitOps
-    function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
+    function check_commutation(op1::Pauli, op2::Pauli)
         #Qubits affected by both CircuitOps
         AffectedQubits=sort(union(op1.qubits,op2.qubits))
         #Total number of qubits affected
