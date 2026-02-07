@@ -18,10 +18,11 @@ const P = typeof(P"XYZ")
         qubits::Vector{Int}
     end
     """TODO docstring"""
+    """
     struct Pauli
         pauli::P
         qubits::Vector{Int}
-    end
+    end"""
     """TODO docstring"""
     struct ExpHalfPiPauli
         pauli::P
@@ -59,7 +60,7 @@ end
 """TODO docstring"""
 const Circuit = Vector{CircuitOp.Type}
 
-using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PrepMagic, PauliConditional, BitConditional
+using .CircuitOp: Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PrepMagic, PauliConditional, BitConditional
 
 include("traversal.jl")
 include("affectedqubits.jl")
