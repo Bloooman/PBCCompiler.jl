@@ -1,5 +1,4 @@
 module PBCCompiler
-
 using Moshi.Data: @data
 using Moshi.Match: @match
 using QuantumClifford: PauliOperator, @P_str
@@ -17,12 +16,6 @@ const P = typeof(P"XYZ")
         bit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
-    """
-    struct Pauli
-        pauli::P
-        qubits::Vector{Int}
-    end"""
     """TODO docstring"""
     struct ExpHalfPiPauli
         pauli::P
