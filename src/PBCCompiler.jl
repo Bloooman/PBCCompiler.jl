@@ -1,5 +1,4 @@
 module PBCCompiler
-
 using Moshi.Data: @data
 using Moshi.Match: @match
 using QuantumClifford: PauliOperator, @P_str
