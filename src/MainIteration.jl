@@ -42,19 +42,13 @@ function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
 end
 
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    #scenario 1: both are Pauli product rotations
+    
     @match (op1, op2) begin
-        (op, CircuitOp.ExpQuatPiPauli(p,q)) || (CircuitOp.ExpQuatPiPauli(p,q),op) => begin
-            (Pauli1,Pauli2)=complete_paulis(op1, op2)
-            commutativity=comm(Pauli1,Pauli2)
-            if commutativity == 0 
-                println("The two operations commute.")
-            else
-                println("The two operations anticommute.")
-            end
-            return commutativity
+        #scenario 1: One of them is classical controlled gate
+        (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
+            println("Invaid input: Need to determine gate present first")
         end
-        #scenario 2: one is a Controlled gate
+        #scenario 2: One of them is Pauli Conditional gate
         (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) || (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
             println("One of the operations is a Pauli conditional gate. ")
             cop=ExpQuatPiPauli(cp, cq)
@@ -70,12 +64,46 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
             return (comm_cop, comm_top)
         end
+        #scenario 3: One of them is HalfPi Pauli
+        _ => begin
+            (Pauli1,Pauli2)=complete_paulis(op1, op2)
+            commutativity=comm(Pauli1,Pauli2)
+            if commutativity == 0 
+                println("The two operations commute.")
+            else
+                println("The two operations anticommute.")
+            end
+            return commutativity
+        end
+        #scenario 2: one is a Controlled gate
       
     end
 end
 
 function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1, op2) begin
+    #scenario 1: One of them is classical controlled gate
+        (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
+            println("Invaid input: Need to determine gate present first")
+        end
+     #scenario 1: one is a Controlled gate
+        (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
+            println("One of the operations is a Pauli conditional gate.")
+            op_1=ExpQuatPiPauli(-cp, cq)
+            println("First conjugation with the control Pauli of the conditional gate.")
+            op_2=ExpQuatPiPauli(-tp, tq)
+            println("Second conjugation with the target Pauli of the conditional gate.")
+            op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+            println("Third conjugation with the combined control and target Paulis of the conditional gate.")
+            conju_step1=conjugate(op_1, op)
+            println("After conjugation with the control Pauli of the conditional gate, the pauli string becomes: ", conju_step1.pauli, " and the affected qubits become: ", conju_step1.qubits)
+            conju_step2=conjugate(op_2, conju_step1)
+            println("After conjugation with the target Pauli of the conditional gate, the pauli string becomes: ", conju_step2.pauli, " and the affected qubits become: ", conju_step2.qubits)
+            conju_final=conjugate(op_3, conju_step2)
+            println("After conjugation with the combined control and target Paulis of the conditional gate, the pauli string becomes: ", conju_final.pauli, " and the affected qubits become: ", conju_final.qubits)
+            return conju_final
+        end
+    #scenario 2: one is a HalfPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), CircuitOp.ExpQuatPiPauli(p2,q2)) => begin
             if check_commutation(op1,op2) == 0 
                 p=complete_paulis(op1, op2)[2]
@@ -94,22 +122,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
             return ExpQuatPiPauli(p,q)
         end
-        #scenario 2: one is a Controlled gate
-        (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) || (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
-            println("One of the operations is a Pauli conditional gate.")
-            op_1=ExpQuatPiPauli(-cp, cq)
-            println("First conjugation with the control Pauli of the conditional gate.")
-            op_2=ExpQuatPiPauli(-tp, tq)
-            println("Second conjugation with the target Pauli of the conditional gate.")
-            op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
-            println("Third conjugation with the combined control and target Paulis of the conditional gate.")
-            conju_step1=conjugate(op_1, op)
-            println("After conjugation with the control Pauli of the conditional gate, the pauli string becomes: ", conju_step1.pauli, " and the affected qubits become: ", conju_step1.qubits)
-            conju_step2=conjugate(op_2, conju_step1)
-            println("After conjugation with the target Pauli of the conditional gate, the pauli string becomes: ", conju_step2.pauli, " and the affected qubits become: ", conju_step2.qubits)
-            conju_final=conjugate(op_3, conju_step2)
-            println("After conjugation with the combined control and target Paulis of the conditional gate, the pauli string becomes: ", conju_final.pauli, " and the affected qubits become: ", conju_final.qubits)
-            return conju_final
-        end
+        
     end
 end
+

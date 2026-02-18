@@ -32,11 +32,6 @@ const P = typeof(P"XYZ")
         qubits::Vector{Int}
     end
     """TODO docstring"""
-    struct PrepMagic
-        qubit::Int
-        qubits::Vector{Int}
-    end
-    """TODO docstring"""
     struct PauliConditional
         control_pauli::P
         control_qubits::Vector{Int}
