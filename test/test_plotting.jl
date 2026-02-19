@@ -1,7 +1,7 @@
 @testitem "plotting" tags=[:plotting] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, circuitplot, circuitplot!, circuitplot_axis
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, circuitplot, circuitplot!, circuitplot_axis
 using QuantumClifford: @P_str
 using CairoMakie
 
@@ -15,7 +15,7 @@ using CairoMakie
 end
 
 @testset "Single Pauli gate" begin
-    circuit = Circuit([Pauli(P"X", [1])])
+    circuit = Circuit([ExpQuatPiPauli(P"X", [1])])
     fig = Figure()
     circuitplot_axis(fig[1, 1], circuit)
     save("test_single_pauli.png", fig)
@@ -24,7 +24,7 @@ end
 end
 
 @testset "Multi-qubit Pauli gate" begin
-    circuit = Circuit([Pauli(P"XYZ", [1, 2, 3])])
+    circuit = Circuit([ExpQuatPiPauli(P"XYZ", [1, 2, 3])])
     fig = Figure()
     circuitplot_axis(fig[1, 1], circuit)
     save("test_multiqubit_pauli.png", fig)

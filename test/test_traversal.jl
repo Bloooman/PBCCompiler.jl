@@ -1,7 +1,7 @@
 @testitem "Traversal" tags=[:traversal] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, traversal
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, traversal
 using QuantumClifford: @P_str
 using Moshi.Data: isa_variant
 
@@ -12,7 +12,7 @@ using Moshi.Data: isa_variant
     @test isempty(circuit)
 
     # Test single-element circuit (no pairs to traverse)
-    circuit = Circuit([Pauli(P"X", [1])])
+    circuit = Circuit([ExpQuatPiPauli(P"X", [1])])
     traversal(circuit, (a, b) -> nothing)
     @test length(circuit) == 1
 end
@@ -23,9 +23,9 @@ end
 
     # Create circuit [X, Y, Z]
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [1]),
-        Pauli(P"Z", [1])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [1]),
+        ExpQuatPiPauli(P"Z", [1])
     ])
 
     # After traversal with swap:
@@ -33,9 +33,9 @@ end
     # Pair (X, Z) -> (Z, X): [Y, Z, X]
     traversal(circuit, swap_transform)
 
-    @test isa_variant(circuit[1], CircuitOp.Pauli)
-    @test isa_variant(circuit[2], CircuitOp.Pauli)
-    @test isa_variant(circuit[3], CircuitOp.Pauli)
+    @test isa_variant(circuit[1], CircuitOp.ExpQuatPiPauli)
+    @test isa_variant(circuit[2], CircuitOp.ExpQuatPiPauli)
+    @test isa_variant(circuit[3], CircuitOp.ExpQuatPiPauli)
     # Check that X has moved to the end (bubble sort behavior)
     @test circuit[1].pauli == P"Y"
     @test circuit[2].pauli == P"Z"
@@ -47,9 +47,9 @@ end
     no_op(op1, op2) = nothing
 
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [1]),
-        Pauli(P"Z", [1])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [1]),
+        ExpQuatPiPauli(P"Z", [1])
     ])
 
     original_length = length(circuit)
@@ -72,9 +72,9 @@ end
     end
 
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [1]),
-        Pauli(P"Z", [1])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [1]),
+        ExpQuatPiPauli(P"Z", [1])
     ])
 
     # After first combination: [X, Z] (X and Y combined into X)
@@ -89,9 +89,9 @@ end
     swap_transform(op1, op2) = (op2, op1)
 
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [1]),
-        Pauli(P"Z", [1])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [1]),
+        ExpQuatPiPauli(P"Z", [1])
     ])
 
     # With left direction, start from the right side
@@ -108,10 +108,10 @@ end
     swap_transform(op1, op2) = (op2, op1)
 
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [1]),
-        Pauli(P"Z", [1]),
-        Pauli(P"I", [1])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [1]),
+        ExpQuatPiPauli(P"Z", [1]),
+        ExpQuatPiPauli(P"I", [1])
     ])
 
     # Only traverse from index 2 to 2 (pair at positions 2,3)
@@ -134,9 +134,9 @@ end
     end
 
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [1]),
-        Pauli(P"Z", [1])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [1]),
+        ExpQuatPiPauli(P"Z", [1])
     ])
 
     # Pair (X, Y): X is first, so swap -> [Y, X, Z]

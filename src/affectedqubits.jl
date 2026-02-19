@@ -19,11 +19,9 @@ affectedqubits(op)  # returns [1, 3]
 function affectedqubits(op::CircuitOp.Type)
     qubits = @match op begin
         CircuitOp.Measurement(pauli, bit, qubits) => qubits
-        CircuitOp.Pauli(pauli, qubits) => qubits
         CircuitOp.ExpHalfPiPauli(pauli, qubits) => qubits
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => qubits
         CircuitOp.ExpEighPiPauli(pauli, qubits) => qubits
-        CircuitOp.PrepMagic(qubit, qubits) => vcat([qubit], qubits)
         CircuitOp.PauliConditional(cp, cq, tp, tq) => vcat(cq, tq)
         CircuitOp.BitConditional(inner_op, bit) => affectedqubits(inner_op)
     end
