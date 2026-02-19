@@ -9,7 +9,7 @@ Return the sorted list of qubit indices affected by a circuit operation.
 
 # Examples
 ```julia
-op = Pauli(P"XY", [1, 2])
+op = ExpQuatPiPauli(P"XY", [1, 2])
 affectedqubits(op)  # returns [1, 2]
 
 op = PauliConditional(P"X", [1], P"Z", [3])
