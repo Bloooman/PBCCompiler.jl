@@ -1,6 +1,6 @@
 using BenchmarkTools
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, traversal
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, traversal
 using QuantumClifford: @P_str
 using Moshi.Data: isa_variant
 
@@ -9,7 +9,7 @@ const SUITE = BenchmarkGroup()
 # Helper function to create a circuit with n Pauli gates
 function make_pauli_circuit(n::Int)
     paulis = [P"X", P"Y", P"Z", P"I"]
-    ops = [Pauli(paulis[mod1(i, 4)], [1]) for i in 1:n]
+    ops = [ExpHalfPiPauli(paulis[mod1(i, 4)], [1]) for i in 1:n]
     return Circuit(ops)
 end
 
@@ -22,11 +22,11 @@ function make_mixed_circuit(n::Int)
         if i % 4 == 0
             push!(ops, Measurement(p, i, [1]))
         elseif i % 4 == 1
-            push!(ops, Pauli(p, [1]))
+            push!(ops, ExpHalfPiPauli(p, [1]))
         elseif i % 4 == 2
             push!(ops, ExpHalfPiPauli(p, [1]))
         else
-            push!(ops, Pauli(p, [1, 2]))
+            push!(ops, ExpQuatPiPauli(p, [1, 2]))
         end
     end
     return Circuit(ops)
