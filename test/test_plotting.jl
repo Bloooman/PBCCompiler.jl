@@ -66,7 +66,7 @@ end
 @testset "BitConditional" begin
     circuit = Circuit([
         Measurement(P"Z", 0, [1]),
-        BitConditional(Pauli(P"X", [2]), 0)
+        BitConditional(ExpQuatPiPauli(P"X", [2]), 0)
     ])
     fig = Figure()
     circuitplot_axis(fig[1, 1], circuit)
@@ -77,10 +77,10 @@ end
 
 @testset "Mixed circuit" begin
     circuit = Circuit([
-        Pauli(P"X", [1]),
+        ExpQuatPiPauli(P"X", [1]),
         ExpHalfPiPauli(P"Y", [2]),
         Measurement(P"ZZ", 0, [1, 2]),
-        BitConditional(Pauli(P"X", [3]), 0),
+        BitConditional(ExpQuatPiPauli(P"X", [3]), 0),
         ExpQuatPiPauli(P"Z", [3])
     ])
     fig = Figure()
@@ -92,9 +92,9 @@ end
 
 @testset "Non-contiguous qubits" begin
     circuit = Circuit([
-        Pauli(P"X", [1]),
-        Pauli(P"Y", [5]),
-        Pauli(P"Z", [10])
+        ExpQuatPiPauli(P"X", [1]),
+        ExpQuatPiPauli(P"Y", [5]),
+        ExpQuatPiPauli(P"Z", [10])
     ])
     fig = Figure()
     circuitplot_axis(fig[1, 1], circuit)
@@ -105,7 +105,7 @@ end
 
 @testset "Custom plot attributes" begin
     circuit = Circuit([
-        Pauli(P"X", [1]),
+        ExpQuatPiPauli(P"X", [1]),
         Measurement(P"Z", 0, [2])
     ])
     fig = Figure()

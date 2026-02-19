@@ -1,7 +1,7 @@
 @testitem "Traversal" tags=[:traversal] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, traversal
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpQuatPiPauli, ExpHalfPiPauli, traversal
 using QuantumClifford: @P_str
 using Moshi.Data: isa_variant
 
@@ -65,8 +65,8 @@ end
     # Transformation that combines two operations into one
     # For testing, combine any two Paulis into a single X
     combine_paulis(op1, op2) = begin
-        if isa_variant(op1, CircuitOp.Pauli) && isa_variant(op2, CircuitOp.Pauli)
-            return Pauli(P"X", [1])  # Combine into single X
+        if isa_variant(op1, CircuitOp.ExpQuatPiPauli) && isa_variant(op2, CircuitOp.ExpQuatPiPauli)
+            return ExpQuatPiPauli(P"X", [1])  # Combine into single X
         end
         return nothing
     end
@@ -82,7 +82,7 @@ end
     traversal(circuit, combine_paulis)
 
     @test length(circuit) == 1
-    @test isa_variant(circuit[1], CircuitOp.Pauli)
+    @test isa_variant(circuit[1], CircuitOp.ExpQuatPiPauli)
 end
 
 @testset "Left direction traversal" begin
@@ -127,7 +127,7 @@ end
 @testset "Conditional transformation" begin
     # Only swap if first operation is an X Pauli
     conditional_swap(op1, op2) = begin
-        if isa_variant(op1, CircuitOp.Pauli) && op1.pauli == P"X"
+        if isa_variant(op1, CircuitOp.ExpQuatPiPauli) && op1.pauli == P"X"
             return (op2, op1)
         end
         return nothing
@@ -149,7 +149,7 @@ end
 end
 
 @testset "Invalid direction error" begin
-    circuit = Circuit([Pauli(P"X", [1]), Pauli(P"Y", [1])])
+    circuit = Circuit([ExpQuatPiPauli(P"X", [1]), ExpQuatPiPauli(P"Y", [1])])
     @test_throws ArgumentError traversal(circuit, (a,b) -> nothing, :invalid)
 end
 

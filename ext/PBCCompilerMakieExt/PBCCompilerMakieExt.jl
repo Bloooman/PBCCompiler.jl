@@ -17,7 +17,6 @@ Makie.@recipe(CircuitPlot, circuit) do scene
         wirecolor = :black,
         wirelinewidth = 1.0,
         # Gate colors by variant
-        paulicolor = Makie.RGB(0.2, 0.6, 0.2),           # green
         measurementcolor = Makie.RGB(0.8, 0.2, 0.2),     # red
         exphalfpicolor = Makie.RGB(0.2, 0.4, 0.8),       # blue
         expquatpicolor = Makie.RGB(0.5, 0.2, 0.8),       # purple
@@ -34,11 +33,9 @@ end
 function gate_color(op::CircuitOp.Type, plot::CircuitPlot)
     @match op begin
         CircuitOp.Measurement(_, _, _) => plot.measurementcolor[]
-        CircuitOp.Pauli(_, _) => plot.paulicolor[]
         CircuitOp.ExpHalfPiPauli(_, _) => plot.exphalfpicolor[]
         CircuitOp.ExpQuatPiPauli(_, _) => plot.expquatpicolor[]
         CircuitOp.ExpEighPiPauli(_, _) => plot.expeighpicolor[]
-        CircuitOp.PrepMagic(_, _) => :transparent  # Not visualized
         CircuitOp.PauliConditional(_, _, _, _) => plot.conditionalcolor[]
         CircuitOp.BitConditional(_, _) => plot.bitconditionalcolor[]
     end
@@ -48,23 +45,14 @@ end
 function gate_label(op::CircuitOp.Type)
     @match op begin
         CircuitOp.Measurement(_, _, _) => "M"
-        CircuitOp.Pauli(_, _) => "P"
         CircuitOp.ExpHalfPiPauli(_, _) => "S"
         CircuitOp.ExpQuatPiPauli(_, _) => "T"
         CircuitOp.ExpEighPiPauli(_, _) => "R"
-        CircuitOp.PrepMagic(_, _) => ""
         CircuitOp.PauliConditional(_, _, _, _) => "CP"
         CircuitOp.BitConditional(inner, _) => gate_label(inner)
     end
 end
 
-"""Check if an operation is a PrepMagic (not visualized for now)."""
-function is_prepmagic(op::CircuitOp.Type)
-    @match op begin
-        CircuitOp.PrepMagic(_, _) => true
-        _ => false
-    end
-end
 
 """Get the classical bit index for a Measurement, or nothing."""
 function measurement_bit(op::CircuitOp.Type)
@@ -114,10 +102,6 @@ function Makie.plot!(plot::CircuitPlot)
 
     # Draw each gate
     for (idx, op) in enumerate(circuit)
-        # Skip PrepMagic for now
-        if is_prepmagic(op)
-            continue
-        end
 
         qubits = affectedqubits(op)
         if isempty(qubits)
