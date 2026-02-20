@@ -36,8 +36,8 @@ end
 swap_transform(op1, op2) = (op2, op1)
 noop_transform(op1, op2) = nothing
 function combine_paulis(op1, op2)
-    if isa_variant(op1, CircuitOp.Pauli) && isa_variant(op2, CircuitOp.Pauli)
-        return Pauli(P"X", [1])
+    if isa_variant(op1, CircuitOp.Pauli) && isa_variant(op2, CircuitOp.ExpQuatPiPauli)
+        return ExpQuatPiPauli(P"X", [1])
     end
     return nothing
 end
