@@ -53,6 +53,7 @@ using .CircuitOp: Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, P
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
+include("MainIteration.jl")
 
 ##
 
