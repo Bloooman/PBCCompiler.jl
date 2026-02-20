@@ -6,7 +6,8 @@
     """
 
 
-using PBCCompiler: Pauli
+using PBCCompiler
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits
 using QuantumClifford: comm, embed
 using Moshi.Match: @match
 
