@@ -9,7 +9,7 @@ Return the sorted list of qubit indices affected by a circuit operation.
 
 # Examples
 ```julia
-op = ExpEighPiPauli(P"XY", [1, 2])
+op = Pauli(P"XY", [1, 2])
 affectedqubits(op)  # returns [1, 2]
 
 op = PauliConditional(P"X", [1], P"Z", [3])
@@ -19,6 +19,7 @@ affectedqubits(op)  # returns [1, 3]
 function affectedqubits(op::CircuitOp.Type)
     qubits = @match op begin
         CircuitOp.Measurement(pauli, bit, qubits) => qubits
+        CircuitOp.Pauli(pauli, qubits) => qubits
         CircuitOp.ExpHalfPiPauli(pauli, qubits) => qubits
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => qubits
         CircuitOp.ExpEighPiPauli(pauli, qubits) => qubits

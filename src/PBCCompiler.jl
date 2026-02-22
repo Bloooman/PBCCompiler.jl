@@ -1,4 +1,5 @@
 module PBCCompiler
+
 using Moshi.Data: @data
 using Moshi.Match: @match
 using QuantumClifford: PauliOperator, @P_str
@@ -17,6 +18,11 @@ const P = typeof(P"XYZ")
         qubits::Vector{Int}
     end
     """TODO docstring"""
+    struct Pauli
+        pauli::P
+        qubits::Vector{Int}
+    end
+    """TODO docstring"""
     struct ExpHalfPiPauli
         pauli::P
         qubits::Vector{Int}
@@ -29,6 +35,11 @@ const P = typeof(P"XYZ")
     """TODO docstring"""
     struct ExpEighPiPauli
         pauli::P
+        qubits::Vector{Int}
+    end
+    """TODO docstring"""
+    struct PrepMagic
+        qubit::Int
         qubits::Vector{Int}
     end
     """TODO docstring"""
@@ -48,13 +59,12 @@ end
 """TODO docstring"""
 const Circuit = Vector{CircuitOp.Type}
 
-using .CircuitOp: Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PrepMagic, PauliConditional, BitConditional
+using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PrepMagic, PauliConditional, BitConditional
 
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
 include("MainIteration.jl")
-
 ##
 
 """TODO docstring"""
