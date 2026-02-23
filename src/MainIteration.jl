@@ -13,6 +13,7 @@ using Moshi.Match: @match
 
 function affectedpaulis(op::CircuitOp.Type)
     qubits = @match op begin
+        CircuitOp.Pauli(pauli, qubits) => pauli
         CircuitOp.Measurement(pauli, bit, qubits) => pauli
         CircuitOp.ExpHalfPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => pauli
@@ -42,19 +43,13 @@ function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
 end
 
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    #scenario 1: both are Pauli product rotations
+    
     @match (op1, op2) begin
-        (op, CircuitOp.ExpQuatPiPauli(p,q)) || (CircuitOp.ExpQuatPiPauli(p,q),op) => begin
-            (Pauli1,Pauli2)=complete_paulis(op1, op2)
-            commutativity=comm(Pauli1,Pauli2)
-            if commutativity == 0 
-                println("The two operations commute.")
-            else
-                println("The two operations anticommute.")
-            end
-            return commutativity
+        #scenario 1: One of them is classical controlled gate
+        (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
+            println("Invaid input: Need to determine gate present first")
         end
-        #scenario 2: one is a Controlled gate
+        #scenario 2: One of them is Pauli Conditional gate
         (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) || (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
             println("One of the operations is a Pauli conditional gate. ")
             cop=ExpQuatPiPauli(cp, cq)
@@ -70,6 +65,18 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
             return (comm_cop, comm_top)
         end
+        #scenario 3: Both are Pauli Product Rotations
+        _ => begin
+            (Pauli1,Pauli2)=complete_paulis(op1, op2)
+            commutativity=comm(Pauli1,Pauli2)
+            if commutativity == 0 
+                println("The two operations commute.")
+            else
+                println("The two operations anticommute.")
+            end
+            return commutativity
+        end
+        #scenario 2: one is a Controlled gate
       
     end
 end

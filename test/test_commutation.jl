@@ -1,4 +1,4 @@
-using PBCCompiler: MainIteration
+using PBCCompiler: check_commutation, CircuitOp, ExpQuatPiPauli
 using Test
 
 @testset "Test check_commutation function" begin
