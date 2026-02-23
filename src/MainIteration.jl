@@ -48,7 +48,7 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1, op2) begin
         #scenario 1: One of them is classical controlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
-            println("Invaid input: Need to determine gate present first")
+            println("Invalid input: Need to determine gate present first")
         end
         #scenario 2: One of them is Pauli Conditional gate
         (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) || (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
