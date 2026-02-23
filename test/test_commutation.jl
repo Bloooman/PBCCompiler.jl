@@ -1,7 +1,7 @@
 @testitem "check_commutation" tags=[:check_commutation] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits, MainIteration
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits
 using Test
 using PBCCompiler: check_commutation
 using QuantumClifford: @P_str, comm
