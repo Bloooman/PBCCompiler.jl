@@ -37,15 +37,15 @@ function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
     println("Affected qubits of both ops: ", AffectedQubbits)
     Paulilen=maximum(AffectedQubbits)
     println("Length of the affected Pauli string: ", Paulilen)
-    Pauli1=embed(Paulilen, qu1, pu1)
-    Pauli2=embed(Paulilen, qu2, pu2)
+    Pauli1=embed(Paulilen, op1.qubits, pu1)
+    Pauli2=embed(Paulilen, op2.qubits, pu2)
     println("New Pauli string of op1: ", Pauli1)
     println("New Pauli string of op2: ", Pauli2)
     return (Pauli1, Pauli2)
 end
 
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    
+
     @match (op1, op2) begin
         #scenario 1: One of them is classical controlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
@@ -71,7 +71,7 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
         _ => begin
             (Pauli1,Pauli2)=complete_paulis(op1, op2)
             commutativity=comm(Pauli1,Pauli2)
-            if commutativity == 0 
+            if commutativity == 0
                 println("The two operations commute.")
             else
                 println("The two operations anticommute.")
@@ -79,17 +79,17 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
             return commutativity
         end
         #scenario 2: one is a Controlled gate
-      
+
     end
 end
 
 function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the one we conjugate by, second input is the one we want to conjugate
-    @match (op1, op2) begin
+    conjugated_op=@match (op1, op2) begin
      #scenario 1: one is a BitControlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
             println("Invaid input: Need to determine gate present first")
         end
-    #scenario 2: Conjugated by a PauliControlled gate    
+    #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
             println("One of the operations is a Pauli conditional gate.")
             op_1=ExpQuatPiPauli(-cp, cq)
@@ -98,18 +98,15 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             println("Second conjugation with the target Pauli of the conditional gate.")
             op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
             println("Third conjugation with the combined control and target Paulis of the conditional gate.")
-            conju_step1=conjugate(op_1, op2)
-            println("After conjugation with the control Pauli of the conditional gate, the pauli string becomes: ", conju_step1.pauli, " and the affected qubits become: ", conju_step1.qubits)
-            conju_step2=conjugate(op_2, conju_step1)
-            println("After conjugation with the target Pauli of the conditional gate, the pauli string becomes: ", conju_step2.pauli, " and the affected qubits become: ", conju_step2.qubits)
-            conju_final=conjugate(op_3, conju_step2)
-            println("After conjugation with the combined control and target Paulis of the conditional gate, the pauli string becomes: ", conju_final.pauli, " and the affected qubits become: ", conju_final.qubits)
-            return conju_final
+            conju_step1=conjugate(op_1, op2)[1]
+            conju_step2=conjugate(op_2, conju_step1)[1]
+            conju_final=conjugate(op_3, conju_step2)[1]
+            conju_final
         end
     #scenario 3: Conjugated by a HalfPi Pauli
         (CircuitOp.ExpHalfPiPauli(p1,q1),op) => begin
         println("One of the operations is a HalfPi Pauli gate.")
-            if check_commutation(op1,op2) == 0 
+            if check_commutation(op1,op2) == 0
                 new_p=complete_paulis(op1, op2)[2]
                 new_qm=maximum(sort(union(q1, affectedqubits(op2))))
                 new_q=[x for x in 1:new_qm]
@@ -126,13 +123,18 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
                 println("The qubits affected by the conjugated operation are: ", new_q)
             end
             typeofp=variant_name(op2)
+            if typeofp == :Measurement
+                constructor=getproperty(CircuitOp, typeofp)
+                new_op=constructor(new_p, op2.bit, new_q)
+            else
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
-            return new_op
+            end
+
         end
-    #scenario 4: Conjugated by a ExpQuatPi Pauli
+    #scenario 4: PPM Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), CircuitOp.Measurement(p2,b,q2)) => begin
-            if check_commutation(op1,op2) == 0 
+            if check_commutation(op1,op2) == 0
                 new_p=complete_paulis(op1, op2)[2]
                 new_qm=maximum(sort(union(q1, q2)))
                 new_q=[x for x in 1:new_qm]
@@ -148,10 +150,11 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
                 println("The Pauli string of the conjugated operation is: ", new_p)
                 println("The qubits affected by the conjugated operation are: ", new_q)
             end
-            return Measurement(new_p,b,new_q)
+            Measurement(new_p,b,new_q)
         end
+    #scenario 5: PPR Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), op) => begin
-            if check_commutation(op1,op2) == 0 
+            if check_commutation(op1,op2) == 0
                 new_p=complete_paulis(op1, op2)[2]
                 new_qm=maximum(sort(union(q1, affectedqubits(op2))))
                 new_q=[x for x in 1:new_qm]
@@ -170,11 +173,12 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             typeofp=variant_name(op2)
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
-            return new_op
-        end 
+
+        end
         _=> begin
             println("Invalid input: Conjugation between the given types of CircuitOps is not supported.")
         end
-        
+
     end
+    return (conjugated_op,op1)
 end
