@@ -7,11 +7,31 @@
 
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits
+using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits, Pauli
 using QuantumClifford: comm, embed
 using Moshi.Match: @match
 
+"""
+    affectedpaulis(op::CircuitOp.Type) -> Vector{P}
 
+Return the list of Pauli operators affected by a circuit operation.
+
+# Examples
+```jldoctest
+julia> op = PBCCompiler.Pauli(P"XY", [1, 2]);
+
+julia> PBCCompiler.affectedpaulis(op)  # returns [1, 2]
++ XY
+```
+```jldoctest
+julia> op = PBCCompiler.PauliConditional(P"X", [1], P"Z", [3]);
+
+julia> PBCCompiler.affectedpaulis(op)  # returns [1, 3]`
+2-element Vector{PauliOperator{Array{UInt8, 0}, Vector{UInt64}}}:
+ + X
+ + Z
+```
+"""
 function affectedpaulis(op::CircuitOp.Type)
     qubits = @match op begin
         CircuitOp.Pauli(pauli, qubits) => pauli
@@ -23,28 +43,75 @@ function affectedpaulis(op::CircuitOp.Type)
     end
 end
 
+"""
+    complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (PauliOperator, PauliOperator)
+
+This helper function ensures that both operators are represented over the
+    union of their affected qubits. It reorders strings to a canonical qubit
+    ordering and pads missing sites with Identity operators ('_') to ensure
+    equal string length.
+
+# Examples
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
+
+julia> op2 = PBCCompiler.ExpQuatPiPauli(P"ZXY",[3, 1, 2]);
+
+julia> PBCCompiler.complete_paulis(op1,op2)
+(+ X_Y, + XYZ)
+```
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
+
+julia> op2 = PBCCompiler.ExpHalfPiPauli(P"Z", [5]);
+
+julia> PBCCompiler.complete_paulis(op1,op2)
+(+ X_Y__, + ____Z)
+```
+"""
+
 function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
     pu1=affectedpaulis(op1)
     pu2=affectedpaulis(op2)
-    println("Affected Paulis of op1: ", pu1)
-    println("Affected Paulis of op2: ", pu2)
     qu1=affectedqubits(op1)
     qu2=affectedqubits(op2)
-    println("Affected qubits of op1: ", qu1)
-    println("Affected qubits of op2: ", qu2)
     AffectedQubbits=sort(union(qu1,qu2))
-    println("Affected qubits of both ops: ", AffectedQubbits)
     Paulilen=maximum(AffectedQubbits)
-    println("Length of the affected Pauli string: ", Paulilen)
-    Pauli1=embed(Paulilen, qu1, pu1)
-    Pauli2=embed(Paulilen, qu2, pu2)
-    println("New Pauli string of op1: ", Pauli1)
-    println("New Pauli string of op2: ", Pauli2)
+    Pauli1=embed(Paulilen, op1.qubits, pu1)
+    Pauli2=embed(Paulilen, op2.qubits, pu2)
     return (Pauli1, Pauli2)
 end
 
+"""
+    check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type) -> Int
+
+Return 0x00 if the two operations commute, and return 0x01 if they anticommute.
+    For classical controlled gates, the function will print a message indicating that the input is invalid and that the gate present needs to be determined first.
+    For Pauli Conditional gates, the function will check the commutation of the input operation with both the control and target Paulis of the conditional gate,
+    and return a tuple indicating the commutation results.
+    This function can handle all types of circuit operations defined in CircuitOp.
+
+# Examples
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
+
+julia> op2 = PBCCompiler.ExpQuatPiPauli(P"ZXY",[3, 1, 2]);
+
+julia> PBCCompiler.check_commutation(op1, op2)
+0x01
+```
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
+
+julia> CNOT = PBCCompiler.PauliConditional(P"Z", [1], P"X", [2]);
+
+julia> PBCCompiler.check_commutation(op1, CNOT)
+(0x01, 0x00)
+```
+"""
+
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    
+
     @match (op1, op2) begin
         #scenario 1: One of them is classical controlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
@@ -52,33 +119,18 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
         end
         #scenario 2: One of them is Pauli Conditional gate
         (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) || (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
-            println("One of the operations is a Pauli conditional gate. ")
             cop=ExpQuatPiPauli(cp, cq)
             top=ExpQuatPiPauli(tp, tq)
             comm_cop=check_commutation(op, cop)
             comm_top=check_commutation(op, top)
-            if comm_cop == 0 && comm_top == 0
-                println("The operation commutes with both the control and target Paulis of the conditional gate.")
-            elseif comm_cop != 0 && comm_top != 0
-                println("The operation anticommutes with both the control and target Paulis of the conditional gate.")
-            else
-                println("The operation commutes with one of the control and target Paulis of the conditional gate, and anticommutes with the other.")
-            end
             return (comm_cop, comm_top)
         end
         #scenario 3: Both are Pauli Product Rotations
         _ => begin
             (Pauli1,Pauli2)=complete_paulis(op1, op2)
             commutativity=comm(Pauli1,Pauli2)
-            if commutativity == 0 
-                println("The two operations commute.")
-            else
-                println("The two operations anticommute.")
-            end
             return commutativity
         end
-        #scenario 2: one is a Controlled gate
-      
+
     end
 end
-
