@@ -64,7 +64,7 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
-
+include("MainIteration.jl")
 ##
 
 """TODO docstring"""
