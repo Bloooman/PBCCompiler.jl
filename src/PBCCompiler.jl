@@ -1,8 +1,10 @@
 module PBCCompiler
 
-using Moshi.Data: @data
+using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
-using QuantumClifford: PauliOperator, @P_str
+using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli
+using Random: randstring
+using StatsBase: sample
 
 ##
 
@@ -65,6 +67,8 @@ include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
 include("MainIteration.jl")
+include("compile.jl")
+include("Random_Circuit.jl")
 ##
 
 """TODO docstring"""
