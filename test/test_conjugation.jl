@@ -1,3 +1,5 @@
+@testitem "check_conjugation" tags=[:check_conjugation] begin
+
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits
 using Test
@@ -88,4 +90,26 @@ end
 
     t_4=conjugate(CNOT, M_Z)
     @test t_4 == (conjugated_op_3, CNOT)
+end
+
+@testset "Test on BitConditional" begin
+    op1=ExpQuatPiPauli(P"X", [1])
+    Con_Z=BitConditional(ExpHalfPiPauli(P"Z", [1]), 1)
+
+    t_1=conjugate(Con_Z, op1)
+    @test t_1 === nothing
+end
+
+@testset "Test on Invalid Inputs" begin
+    op1=ExpQuatPiPauli(P"X", [1])
+    measZ=Measurement(P"Z", 1, [1])
+    measX=Measurement(P"X", 1, [1])
+
+    t_1=conjugate(measZ, op1)
+    @test t_1 === nothing
+
+    t_2=conjugate(measX, measZ)
+    @test t_2 === nothing
+end
+
 end
