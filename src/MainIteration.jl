@@ -183,7 +183,8 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     conjugated_op=@match (op1, op2) begin
      #scenario 1: one is a BitControlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
-            println("Invaid input: Need to determine gate present first")
+            name=variant_name(inner_op)
+            println("Invaid input: Need to determine $name present first")
         end
     #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
@@ -271,8 +272,12 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             new_op=constructor(new_p, new_q)
 
         end
+    #scenario 6: Conjugated by pi/8 PPR
+        (CircuitOp.ExpEighPiPauli(), op) => nothing
+    #scenario 7: Conjugated by measurement
+        (CircuitOp.Measurement(), op) => nothing
         _=> begin
-            println("Invalid input: Conjugation between the given types of CircuitOps is not supported.")
+            throw(ArgumentError("Invalid input"))
         end
 
     end
