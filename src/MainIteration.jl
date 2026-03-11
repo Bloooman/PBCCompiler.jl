@@ -283,6 +283,8 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     end
     if conjugated_op === nothing
         return nothing
+    elseif isa_variant(conjugated_op, CircuitOp.Measurement)
+        return conjugated_op
     else
         return (conjugated_op,op1)
     end
