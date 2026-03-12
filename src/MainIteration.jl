@@ -13,7 +13,6 @@ using Moshi.Match: @match
 using Moshi.Data: variant_name
 
 struct PauliQubitMismatchError <: Exception
-    CircuitOp_name::String
     msg::String
 end
 
@@ -22,7 +21,7 @@ function validate_CircuitOp(op::CircuitOp.Type)
     q=affectedqubits(op)
     name=variant_name(op)
     if length(p) != length(q)
-        throw(PauliQubitMismatchError("$name($(p), $(q)): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
+        throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
     end
 end
 

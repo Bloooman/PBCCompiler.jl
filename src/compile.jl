@@ -25,10 +25,10 @@ end
 function compilation(circuit::Circuit)
     validate_circuit(circuit)
     for index in find_nonclifford_indices(circuit)
-        circuit=traversal(circuit, test_conjugate, :left, 1, index-1)
+        circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     for index in find_measurement_indices(circuit)
-        circuit=traversal(circuit, test_conjugate, :left, 1, index-1)
+        circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     return circuit
 end

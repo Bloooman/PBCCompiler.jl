@@ -1,7 +1,5 @@
 """
 Functions for generating random quantum circuits for testing purposes.
-"""
-"""
     generate_random_circuit(num_ops::Int, num_qubits::Int) -> Circuit
 Generate a random quantum circuit with a specified number of operations and qubits.
 
