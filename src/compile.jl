@@ -1,6 +1,24 @@
 """
 Functions for compiling quantum circuits by moving measurement operations to the beginning of the circuit.
 """
+struct PauliQubitMismatchError <: Exception
+    msg::String
+end
+
+function validate_CircuitOp(op::CircuitOp.Type)
+    p=affectedpaulis(op)
+    q=affectedqubits(op)
+    name=variant_name(op)
+    if length(p) != length(q)
+        throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
+    end
+end
+
+function validate_circuit(circuit::Circuit)
+    for op in circuit
+        validate_CircuitOp(op)
+    end
+end
 
 function find_measurement_indices(circuit::Circuit)
     measurement_indices = []

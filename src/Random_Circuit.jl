@@ -38,3 +38,14 @@ function generate_random_circuit(num_ops::Int, num_qubits::Int)
     end
     return ops
 end
+
+function generate_valid_random_circuit(num_ops::Int, num_qubits::Int, limit::Int)
+    for i in 1:limit
+        try
+            ops = generate_random_circuit(num_ops, num_qubits)
+            validate_circuit(ops)
+            return(ops)
+        catch e
+        end
+    end
+end
