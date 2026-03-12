@@ -42,8 +42,10 @@ end
 
 function compilation(circuit::Circuit)
     validate_circuit(circuit)
-    for index in find_nonclifford_indices(circuit)
-        circuit=traversal(circuit, conjugate, :left, 1, index-1)
+    if find_nonclifford_indices(circuit) != []
+        for index in find_nonclifford_indices(circuit)
+            circuit=traversal(circuit, conjugate, :left, 1, index-1)
+        end
     end
     for index in find_measurement_indices(circuit)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
