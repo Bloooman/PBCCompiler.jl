@@ -12,25 +12,6 @@ using QuantumClifford: comm, embed, ⊗
 using Moshi.Match: @match
 using Moshi.Data: variant_name
 
-struct PauliQubitMismatchError <: Exception
-    msg::String
-end
-
-function validate_CircuitOp(op::CircuitOp.Type)
-    p=affectedpaulis(op)
-    q=affectedqubits(op)
-    name=variant_name(op)
-    if length(p) != length(q)
-        throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
-    end
-end
-
-function validate_circuit(circuit::Circuit)
-    for op in circuit
-        validate_CircuitOp(op)
-    end
-end
-
 """
     affectedpaulis(op::CircuitOp.Type) -> Vector{P}
 
@@ -189,14 +170,14 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
             @debug("One of the operations is a Pauli conditional gate.")
             op_1=ExpQuatPiPauli(-cp, cq)
-            @debug("First conjugation with the control Pauli of the conditional gate.")
             op_2=ExpQuatPiPauli(-tp, tq)
-            @debug("Second conjugation with the target Pauli of the conditional gate.")
             op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+            @debug("First conjugation with the control Pauli of the conditional gate.")
+            conju_step1=conjugate(op_1, op2)
+            @debug("Second conjugation with the target Pauli of the conditional gate.")
+            conju_step2=conjugate(op_2, conju_step1)
             @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
-            conju_step1=conjugate(op_1, op2)[1]
-            conju_step2=conjugate(op_2, conju_step1)[1]
-            conju_final=conjugate(op_3, conju_step2)[1]
+            conju_final=conjugate(op_3, conju_step2)
             conju_final
         end
     #scenario 3: Conjugated by a HalfPi Pauli
