@@ -1,8 +1,10 @@
 module PBCCompiler
 
-using Moshi.Data: @data
+using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
-using QuantumClifford: PauliOperator, @P_str
+using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor
+using Random: randstring
+using StatsBase: sample
 
 ##
 
@@ -64,7 +66,9 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
-
+include("pair_transformation.jl")
+include("preprocess.jl")
+include("Random_Circuit.jl")
 ##
 
 """TODO docstring"""
@@ -82,16 +86,23 @@ end
 """TODO docstring"""
 function preprocess_circuit(circuit::Circuit)
     remove_pauliconditional(circuit)
-    commute_nonclifford_to_front(circuit)
     group_nonclifford(circuit)
-    commute_measurements_to_end(circuit)
+    merge_ops(circuit)
     remove_nonclifford(circuit)
     remove_post_measurement(circuit)
 end
 
 """TODO docstring"""
 function remove_nonclifford(circuit::Circuit)
-    # introduce magic states and related measurements and conditional gates
+    num_non_clifford=length(find_nonclifford_indices(circuit))
+    for i in 1:num_non_clifford
+        gadgetize(circuit)
+    end
+end
+
+"""TODO docstring"""
+function merge_ops(circuit::Circuit)
+    traversal(circuit,merge_rotations, :left, 1, :end)
 end
 
 """TODO docstring"""
@@ -101,7 +112,16 @@ end
 
 """TODO docstring"""
 function remove_clifford(circuit::Circuit)
-    # turn
+    validate_circuit(circuit)
+    if find_nonclifford_indices(circuit) != []
+        for index in find_nonclifford_indices(circuit)
+            circuit=traversal(circuit, conjugate, :left, 1, index-1)
+        end
+    end
+    for index in find_measurement_indices(circuit)
+        circuit=traversal(circuit, conjugate, :left, 1, index-1)
+    end
+    return circuit
 end
 
 """TODO docstring"""
