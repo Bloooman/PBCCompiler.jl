@@ -5,13 +5,6 @@
     Provides functions to handle PBC List update and Check list update
     """
 
-
-using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits
-using QuantumClifford: comm, embed, ⊗
-using Moshi.Match: @match
-using Moshi.Data: variant_name
-
 """
     affectedpaulis(op::CircuitOp.Type) -> Vector{P}
 
