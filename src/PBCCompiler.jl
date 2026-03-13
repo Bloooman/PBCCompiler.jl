@@ -86,9 +86,8 @@ end
 """TODO docstring"""
 function preprocess_circuit(circuit::Circuit)
     remove_pauliconditional(circuit)
-    commute_nonclifford_to_front(circuit)
     group_nonclifford(circuit)
-    commute_measurements_to_end(circuit)
+    merge_ops(circuit)
     remove_nonclifford(circuit)
     remove_post_measurement(circuit)
 end
@@ -99,6 +98,11 @@ function remove_nonclifford(circuit::Circuit)
     for i in 1:num_non_clifford
         gadgetize(circuit)
     end
+end
+
+"""TODO docstring"""
+function merge_ops(circuit::Circuit)
+    traversal(circuit,merge_rotations, :left, 1, :end)
 end
 
 """TODO docstring"""
