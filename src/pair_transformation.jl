@@ -271,3 +271,43 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         return (conjugated_op,op1)
     end
 end
+
+"""
+Helper functions to cancel out adjacent PPR pair
+"""
+
+
+function is_identity(pauli::PauliOperator)
+    paulilen=length(pauli)
+    Pauli = P""
+        for i in 1: paulilen
+            Pauli = tensor(Pauli,P"_")
+        end
+    if pauli == Pauli || pauli == -Pauli
+        return true
+    else
+        return false
+    end
+end
+
+function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
+    if variant_name(op1) == variant_name(op2) && op1.qubits == op2.qubits && is_identity(op1.pauli*op2.pauli)
+        paulilen=length(op1.pauli)
+        Pauli = P""
+        for i in 1: paulilen
+            Pauli = tensor(Pauli,P"_")
+        end
+        if xor(op1.pauli.phase[1], op2.pauli.phase[1]) == 0x02
+            return ExpQuatPiPauli(Pauli,op1.qubits)
+        elseif op1.pauli.phase == op2.pauli.phase
+            op = @match (op1,op2) begin
+                (ExpEighPiPauli(p1,q1),ExpEighPiPauli(p2,q2)) => ExpQuatPiPauli(p1,q1)
+                (ExpQuatPiPauli(p1,q1),ExpQuatPiPauli(p2,q2)) => ExpHalfPiPauli(p1,q1)
+                _=> nothing
+            end
+            return op
+        end
+    else
+        return nothing
+    end
+end
