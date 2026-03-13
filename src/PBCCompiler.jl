@@ -66,8 +66,8 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
-include("MainIteration.jl")
-include("compile.jl")
+include("pair_transformation.jl")
+include("preprocess.jl")
 include("Random_Circuit.jl")
 ##
 

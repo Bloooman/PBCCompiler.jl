@@ -168,16 +168,25 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         end
     #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
-            @debug("One of the operations is a Pauli conditional gate.")
+            @debug("One of the operations is a Pauli conditional gate, control($cp, $cq), target($tp,$tq)")
             op_1=ExpQuatPiPauli(-cp, cq)
             op_2=ExpQuatPiPauli(-tp, tq)
             op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
-            @debug("First conjugation with the control Pauli of the conditional gate.")
-            conju_step1=conjugate(op_1, op2)
-            @debug("Second conjugation with the target Pauli of the conditional gate.")
-            conju_step2=conjugate(op_2, conju_step1)
-            @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
-            conju_final=conjugate(op_3, conju_step2)
+            if isa_variant(op,CircuitOp.Measurement)
+                @debug("First conjugation with the control Pauli of the conditional gate.")
+                conju_step1=conjugate(op_1, op2)
+                @debug("Second conjugation with the target Pauli of the conditional gate.")
+                conju_step2=conjugate(op_2, conju_step1)
+                @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
+                conju_final=conjugate(op_3, conju_step2)
+            else
+                @debug("First conjugation with the control Pauli of the conditional gate.")
+                conju_step1=conjugate(op_1, op2)[1]
+                @debug("Second conjugation with the target Pauli of the conditional gate.")
+                conju_step2=conjugate(op_2, conju_step1)[1]
+                @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
+                conju_final=conjugate(op_3, conju_step2)[1]
+            end
             conju_final
         end
     #scenario 3: Conjugated by a HalfPi Pauli
