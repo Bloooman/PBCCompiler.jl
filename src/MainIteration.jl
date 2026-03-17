@@ -194,9 +194,11 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             op_2=ExpQuatPiPauli(-tp, tq)
             @debug("Second conjugation with the target Pauli of the conditional gate.")
             op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
-            @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
+            @debug("First conjugation with the control Pauli of the conditional gate.")
             conju_step1=conjugate(op_1, op2)[1]
+            @debug("Second conjugation with the target Pauli of the conditional gate.")
             conju_step2=conjugate(op_2, conju_step1)[1]
+            @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
             conju_final=conjugate(op_3, conju_step2)[1]
             conju_final
         end
@@ -283,8 +285,6 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     end
     if conjugated_op === nothing
         return nothing
-    elseif isa_variant(conjugated_op, CircuitOp.Measurement)
-        return conjugated_op
     else
         return (conjugated_op,op1)
     end
