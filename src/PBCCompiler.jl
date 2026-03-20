@@ -88,6 +88,7 @@ function preprocess_circuit(circuit::Circuit)
     remove_pauliconditional(circuit)
     group_nonclifford(circuit)
     merge_ops(circuit)
+    remove_clifford(circuit)
     remove_nonclifford(circuit)
     remove_post_measurement(circuit)
 end
@@ -113,11 +114,6 @@ end
 """TODO docstring"""
 function remove_clifford(circuit::Circuit)
     validate_circuit(circuit)
-    if find_nonclifford_indices(circuit) != []
-        for index in find_nonclifford_indices(circuit)
-            circuit=traversal(circuit, conjugate, :left, 1, index-1)
-        end
-    end
     for index in find_measurement_indices(circuit)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
@@ -127,6 +123,8 @@ end
 """TODO docstring"""
 function remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
+    index=maximum(find_measurement_indices(circuit))
+    resize!(circuit, index)
 end
 
 ##
