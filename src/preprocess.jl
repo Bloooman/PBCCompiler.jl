@@ -108,11 +108,11 @@ end
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)
     num_pauli_qubits = length(s)
-    new_s=[]
+    new_s=PauliOperator[]
     pauli_qubits = collect(1:num_pauli_qubits)
     for i in s
         new_i = embed(paulilen, pauli_qubits, i)
         push!(new_s,new_i)
     end
-    return new_s
+    return Stabilizer(new_s)
 end
