@@ -161,27 +161,21 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         end
     #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
-            @debug("One of the operations is a Pauli conditional gate, control($cp, $cq), target($tp,$tq)")
+            @debug("One of the operations is a Pauli conditional gate.")
             op_1=ExpQuatPiPauli(-cp, cq)
+            @debug("First conjugation with the control Pauli of the conditional gate.")
             op_2=ExpQuatPiPauli(-tp, tq)
+            @debug("Second conjugation with the target Pauli of the conditional gate.")
             op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
-            if isa_variant(op,CircuitOp.Measurement)
-                @debug("First conjugation with the control Pauli of the conditional gate.")
-                conju_step1=conjugate(op_1, op2)
-                @debug("Second conjugation with the target Pauli of the conditional gate.")
-                conju_step2=conjugate(op_2, conju_step1)
-                @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
-                conju_final=conjugate(op_3, conju_step2)
-            else
-                @debug("First conjugation with the control Pauli of the conditional gate.")
-                conju_step1=conjugate(op_1, op2)[1]
-                @debug("Second conjugation with the target Pauli of the conditional gate.")
-                conju_step2=conjugate(op_2, conju_step1)[1]
-                @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
-                conju_final=conjugate(op_3, conju_step2)[1]
-            end
+            @debug("First conjugation with the control Pauli of the conditional gate.")
+            conju_step1=conjugate(op_1, op2)[1]
+            @debug("Second conjugation with the target Pauli of the conditional gate.")
+            conju_step2=conjugate(op_2, conju_step1)[1]
+            @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
+            conju_final=conjugate(op_3, conju_step2)[1]
             conju_final
         end
+        (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) => nothing
     #scenario 3: Conjugated by a HalfPi Pauli
         (CircuitOp.ExpHalfPiPauli(p1,q1),op) => begin
         @debug("One of the operations is a HalfPi Pauli gate.")
@@ -209,7 +203,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
             end
-
+            new_op
         end
     #scenario 4: PPM Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), CircuitOp.Measurement(p2,b,q2)) => begin
@@ -252,7 +246,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             typeofp=variant_name(op2)
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
-
+            new_op
         end
     #scenario 6: Conjugated by pi/8 PPR
         (CircuitOp.ExpEighPiPauli(), op) => nothing
@@ -265,8 +259,6 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     end
     if conjugated_op === nothing
         return nothing
-    elseif isa_variant(conjugated_op, CircuitOp.Measurement)
-        return conjugated_op
     else
         return (conjugated_op,op1)
     end
