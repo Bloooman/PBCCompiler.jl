@@ -161,27 +161,21 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         end
     #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
-            @debug("One of the operations is a Pauli conditional gate, control($cp, $cq), target($tp,$tq)")
+            @debug("One of the operations is a Pauli conditional gate.")
             op_1=ExpQuatPiPauli(-cp, cq)
+            @debug("First conjugation with the control Pauli of the conditional gate.")
             op_2=ExpQuatPiPauli(-tp, tq)
+            @debug("Second conjugation with the target Pauli of the conditional gate.")
             op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
-            if isa_variant(op,CircuitOp.Measurement)
-                @debug("First conjugation with the control Pauli of the conditional gate.")
-                conju_step1=conjugate(op_1, op2)
-                @debug("Second conjugation with the target Pauli of the conditional gate.")
-                conju_step2=conjugate(op_2, conju_step1)
-                @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
-                conju_final=conjugate(op_3, conju_step2)
-            else
-                @debug("First conjugation with the control Pauli of the conditional gate.")
-                conju_step1=conjugate(op_1, op2)[1]
-                @debug("Second conjugation with the target Pauli of the conditional gate.")
-                conju_step2=conjugate(op_2, conju_step1)[1]
-                @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
-                conju_final=conjugate(op_3, conju_step2)[1]
-            end
+            @debug("First conjugation with the control Pauli of the conditional gate.")
+            conju_step1=conjugate(op_1, op2)[1]
+            @debug("Second conjugation with the target Pauli of the conditional gate.")
+            conju_step2=conjugate(op_2, conju_step1)[1]
+            @debug("Third conjugation with the combined control and target Paulis of the conditional gate.")
+            conju_final=conjugate(op_3, conju_step2)[1]
             conju_final
         end
+        (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) => nothing
     #scenario 3: Conjugated by a HalfPi Pauli
         (CircuitOp.ExpHalfPiPauli(p1,q1),op) => begin
         @debug("One of the operations is a HalfPi Pauli gate.")
@@ -209,7 +203,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
             end
-
+            new_op
         end
     #scenario 4: PPM Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), CircuitOp.Measurement(p2,b,q2)) => begin
@@ -252,7 +246,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             typeofp=variant_name(op2)
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
-
+            new_op
         end
     #scenario 6: Conjugated by pi/8 PPR
         (CircuitOp.ExpEighPiPauli(), op) => nothing
@@ -265,8 +259,6 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     end
     if conjugated_op === nothing
         return nothing
-    elseif isa_variant(conjugated_op, CircuitOp.Measurement)
-        return conjugated_op
     else
         return (conjugated_op,op1)
     end
@@ -291,23 +283,46 @@ function is_identity(pauli::PauliOperator)
 end
 
 function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    if variant_name(op1) == variant_name(op2) && op1.qubits == op2.qubits && is_identity(op1.pauli*op2.pauli)
-        paulilen=length(op1.pauli)
-        Pauli = P""
-        for i in 1: paulilen
-            Pauli = tensor(Pauli,P"_")
-        end
-        if xor(op1.pauli.phase[1], op2.pauli.phase[1]) == 0x02
-            return ExpQuatPiPauli(Pauli,op1.qubits)
-        elseif op1.pauli.phase == op2.pauli.phase
-            op = @match (op1,op2) begin
-                (ExpEighPiPauli(p1,q1),ExpEighPiPauli(p2,q2)) => ExpQuatPiPauli(p1,q1)
-                (ExpQuatPiPauli(p1,q1),ExpQuatPiPauli(p2,q2)) => ExpHalfPiPauli(p1,q1)
-                _=> nothing
+    @match (op1,op2) begin
+        (ExpEighPiPauli(),ExpEighPiPauli()) => begin
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                if xor(p1.phase[1], p2.phase[1]) == 0x02
+                    return ExpHalfPiPauli(p1*p2,q)
+                elseif op1.pauli.phase == op2.pauli.phase
+                    return ExpQuatPiPauli(p1,q)
+                else
+                    return nothing
+                end
+            else return nothing
             end
-            return op
         end
-    else
-        return nothing
+        (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                if xor(p1.phase[1], p2.phase[1]) == 0x02
+                    return ExpHalfPiPauli(p1*p2,q)
+                elseif op1.pauli.phase == op2.pauli.phase
+                    return ExpHalfPiPauli(p1,q)
+                else
+                    return nothing
+                end
+            else return nothing
+            end
+        end
+        (ExpHalfPiPauli(),ExpHalfPiPauli()) => begin
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                return ExpHalfPiPauli(p1*p2,q)
+            else return nothing
+            end
+        end
+        _ => nothing
     end
 end
