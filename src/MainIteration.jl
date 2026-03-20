@@ -229,7 +229,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
             end
-
+            new_op
         end
     #scenario 4: PPM Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), CircuitOp.Measurement(p2,b,q2)) => begin
@@ -272,7 +272,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             typeofp=variant_name(op2)
             constructor=getproperty(CircuitOp, typeofp)
             new_op=constructor(new_p, new_q)
-
+            new_op
         end
     #scenario 6: Conjugated by pi/8 PPR
         (CircuitOp.ExpEighPiPauli(), op) => nothing
