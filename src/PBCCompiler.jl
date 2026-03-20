@@ -2,7 +2,7 @@ module PBCCompiler
 
 using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
-using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor
+using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor, Stabilizer
 using Random: randstring
 using StatsBase: sample
 
