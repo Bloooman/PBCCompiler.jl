@@ -283,23 +283,46 @@ function is_identity(pauli::PauliOperator)
 end
 
 function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    if variant_name(op1) == variant_name(op2) && op1.qubits == op2.qubits && is_identity(op1.pauli*op2.pauli)
-        paulilen=length(op1.pauli)
-        Pauli = P""
-        for i in 1: paulilen
-            Pauli = tensor(Pauli,P"_")
-        end
-        if xor(op1.pauli.phase[1], op2.pauli.phase[1]) == 0x02
-            return ExpQuatPiPauli(Pauli,op1.qubits)
-        elseif op1.pauli.phase == op2.pauli.phase
-            op = @match (op1,op2) begin
-                (ExpEighPiPauli(p1,q1),ExpEighPiPauli(p2,q2)) => ExpQuatPiPauli(p1,q1)
-                (ExpQuatPiPauli(p1,q1),ExpQuatPiPauli(p2,q2)) => ExpHalfPiPauli(p1,q1)
-                _=> nothing
+    @match (op1,op2) begin
+        (ExpEighPiPauli(),ExpEighPiPauli()) => begin
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                if xor(p1.phase[1], p2.phase[1]) == 0x02
+                    return ExpHalfPiPauli(p1*p2,q)
+                elseif op1.pauli.phase == op2.pauli.phase
+                    return ExpQuatPiPauli(p1,q)
+                else
+                    return nothing
+                end
+            else return nothing
             end
-            return op
         end
-    else
-        return nothing
+        (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                if xor(p1.phase[1], p2.phase[1]) == 0x02
+                    return ExpHalfPiPauli(p1*p2,q)
+                elseif op1.pauli.phase == op2.pauli.phase
+                    return ExpHalfPiPauli(p1,q)
+                else
+                    return nothing
+                end
+            else return nothing
+            end
+        end
+        (ExpHalfPiPauli(),ExpHalfPiPauli()) => begin
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                return ExpHalfPiPauli(p1*p2,q)
+            else return nothing
+            end
+        end
+        _ => nothing
     end
 end
