@@ -15,12 +15,10 @@ end
 
 function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
     result = check_PPM(s, op, num_qubits)
-    if result[2] == 0
-        if result[3] === nothing
-            quantum_measurement(circuit[1])
-        else
-            return result[3]
-        end
+    if result[3] === nothing
+        quantum_measurement(op)
+    elseif result[2] == 0
+        return result[3]
     else
         return rand([-1,1])
     end
