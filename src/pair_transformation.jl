@@ -267,21 +267,6 @@ end
 """
 Helper functions to cancel out adjacent PPR pair
 """
-
-
-function is_identity(pauli::PauliOperator)
-    paulilen=length(pauli)
-    Pauli = P""
-        for i in 1: paulilen
-            Pauli = tensor(Pauli,P"_")
-        end
-    if pauli == Pauli || pauli == -Pauli
-        return true
-    else
-        return false
-    end
-end
-
 function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1,op2) begin
         (ExpEighPiPauli(),ExpEighPiPauli()) => begin
