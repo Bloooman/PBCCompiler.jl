@@ -5,33 +5,6 @@
     Provides functions to handle PBC List update and Check list update
     """
 
-
-using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional, BitConditional, affectedqubits
-using QuantumClifford: comm, embed, ⊗
-using Moshi.Match: @match
-using Moshi.Data: variant_name
-
-struct PauliQubitMismatchError <: Exception
-    CircuitOp_name::String
-    msg::String
-end
-
-function validate_CircuitOp(op::CircuitOp.Type)
-    p=affectedpaulis(op)
-    q=affectedqubits(op)
-    name=variant_name(op)
-    if length(p) != length(q)
-        throw(PauliQubitMismatchError("$name($(op.pauli), $(op.qubits)): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
-    end
-end
-
-function validate_circuit(circuit::Circuit)
-    for op in circuit
-        validate_CircuitOp(op)
-    end
-end
-
 """
     affectedpaulis(op::CircuitOp.Type) -> Vector{P}
 
@@ -202,6 +175,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
             conju_final=conjugate(op_3, conju_step2)[1]
             conju_final
         end
+        (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) => nothing
     #scenario 3: Conjugated by a HalfPi Pauli
         (CircuitOp.ExpHalfPiPauli(p1,q1),op) => begin
         @debug("One of the operations is a HalfPi Pauli gate.")
