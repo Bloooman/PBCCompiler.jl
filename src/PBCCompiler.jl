@@ -1,8 +1,8 @@
 module PBCCompiler
 
-using Moshi.Data: @data
+using Moshi.Data: @data, variant_name
 using Moshi.Match: @match
-using QuantumClifford: PauliOperator, @P_str
+using QuantumClifford: PauliOperator, @P_str, embed, comm, ⊗
 
 ##
 
@@ -64,7 +64,7 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
-include("MainIteration.jl")
+include("pair_transformation.jl")
 ##
 
 """TODO docstring"""
