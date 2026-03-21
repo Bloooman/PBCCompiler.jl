@@ -14,13 +14,16 @@ end
 
 
 function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
+    len=length(s)
     result = check_PPM(s, op, num_qubits)
     if result[3] === nothing
-        quantum_measurement(op)
-    elseif result[2] == 0
-        return result[3]
+        if result[2]>len
+            quantum_measurement(op)
+        else
+            return rand([-1,1])
+        end
     else
-        return rand([-1,1])
+        return result[3]
     end
 end
 
