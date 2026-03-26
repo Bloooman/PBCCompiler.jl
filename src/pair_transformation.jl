@@ -1,8 +1,5 @@
     """
-    This file contains the main iteration structures and functions for the PBCCompiler.
-    It defines how to propagate Pauli Product Measurements (PPMs) through a quantum circuit
-    Provides functions to handle commute condition and anticommute condition
-    Provides functions to handle PBC List update and Check list update
+    This file contains functions performing pair transformation between 2 Circuit Operations: Commutation Check, Conjugation
     """
 
 """
@@ -151,6 +148,31 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
 
     end
 end
+
+"""
+    conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (conjugated_op2::CircuitOp.Type, op1::CircuitOp.Type)
+
+    Move op2 pass op1 and update op2 by conjugating its pauli string by op1's pauli string.
+    Will return nothing if any argument is BitConditional operations or trying to move a controlled gate pass a PPR.
+
+# Examples
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
+
+julia> op2 = PBCCompiler.ExpQuatPiPauli(P"ZXY",[3, 1, 2]);
+
+julia> PBCCompiler.conjugate(op1, op2)
+(CircuitOp.ExpQuatPiPauli(pauli=- _YX, qubits=[1, 2, 3]), CircuitOp.ExpQuatPiPauli(pauli=+ XY, qubits=[1, 3]))
+```
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
+
+julia> CNOT = PBCCompiler.PauliConditional(P"Z", [1], P"X", [2]);
+
+julia> PBCCompiler.check_commutation(CNOT, op1)
+(CircuitOp.ExpQuatPiPauli(pauli=+ XXY, qubits=[1, 2, 3]), CircuitOp.PauliConditional(control_pauli=+ Z, control_qubits=[1], target_pauli=+ X, target_qubits=[2]))
+```
+"""
 
 function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the one we conjugate by, second input is the one we want to conjugate
     conjugated_op=@match (op1, op2) begin
