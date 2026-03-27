@@ -17,10 +17,10 @@ function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::I
     len=length(s)
     result = check_PPM(s, op, num_qubits)
     if result[3] === nothing
-        if result[2]>len
-            quantum_measurement(op)
+        if result[2]<=len
+            return rand([0x0,0x2])
         else
-            return rand([-1,1])
+            quantum_measurement(op)
         end
     else
         return result[3]
@@ -33,6 +33,12 @@ function quantum_measurement(op::CircuitOp.Type)
     if abs(measurement_result) != 1
         throw(ArgumentError("Measurement Result can only be +1 or -1!!!"))
     else
-        return measurement_result
+        if measurement_result == 1
+            return 0x00
+        elseif measurement_result == -1
+            return 0x02
+        else
+            return nothing
+        end
     end
 end
