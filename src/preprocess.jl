@@ -12,6 +12,14 @@ function validate_CircuitOp(op::CircuitOp.Type)
     if length(p) != length(q)
         throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
     end
+    @match op begin
+        CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
+            if cq == Int64[] || tq == Int64[]
+                throw(PauliQubitMismatchError("$name($p, $q): Pauli String can't be empty"))
+            end
+        end
+        _ => nothing
+    end
 end
 
 function validate_circuit(circuit::Circuit)
@@ -60,22 +68,6 @@ function find_nonclifford_indices(circuit::Circuit)
     return nonclifford_indices
 end
 
-function group_nonclifford(circuit::Circuit)
-    if find_nonclifford_indices(circuit) != []
-        for index in find_nonclifford_indices(circuit)
-            circuit=traversal(circuit, conjugate, :left, 1, index-1)
-        end
-    end
-end
-
-function remove_clifford(circuit::Circuit)
-    validate_circuit(circuit)
-    group_nonclifford(circuit)
-    for index in find_measurement_indices(circuit)
-        circuit=traversal(circuit, conjugate, :left, 1, index-1)
-    end
-    return circuit
-end
 
 function gadgetize(circuit::Circuit)
     num_input_qubit=get_circuit_width(circuit)
@@ -108,11 +100,11 @@ end
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)
     num_pauli_qubits = length(s)
-    new_s=PauliOperator[]
+    new_s=[]
     pauli_qubits = collect(1:num_pauli_qubits)
     for i in s
         new_i = embed(paulilen, pauli_qubits, i)
         push!(new_s,new_i)
     end
-    return Stabilizer(new_s)
+    return new_s
 end

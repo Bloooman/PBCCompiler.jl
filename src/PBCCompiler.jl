@@ -2,7 +2,7 @@ module PBCCompiler
 
 using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
-using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor, @S_str, Stabilizer, project!
+using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor, Stabilizer
 using Random: randstring
 using StatsBase: sample
 
@@ -68,7 +68,6 @@ include("affectedqubits.jl")
 include("plotting.jl")
 include("pair_transformation.jl")
 include("preprocess.jl")
-include("joint_measurement_check.jl")
 include("Random_Circuit.jl")
 ##
 
@@ -95,10 +94,28 @@ function preprocess_circuit(circuit::Circuit)
 end
 
 """TODO docstring"""
-function remove_nonclifford(circuit::Circuit)
-    num_non_clifford=length(find_nonclifford_indices(circuit))
-    for i in 1:num_non_clifford
-        gadgetize(circuit)
+function remove_pauliconditional(circuit::Circuit)
+    len=length(circuit)
+    for i in 1:len
+        op=circuit[i]
+        @match op begin
+            PauliConditional(cp, cq, tp, tq) => begin
+                op_1=ExpQuatPiPauli(-cp, cq)
+                op_2=ExpQuatPiPauli(-tp, tq)
+                op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+                splice!(circuit, i, (op_3, op_2, op_1))
+            end
+            _ => nothing
+        end
+    end
+end
+
+"""TODO docstring"""
+function group_nonclifford(circuit::Circuit)
+    if find_nonclifford_indices(circuit) != []
+        for index in find_nonclifford_indices(circuit)
+            circuit=traversal(circuit, conjugate, :left, 1, index-1)
+        end
     end
 end
 
@@ -108,17 +125,20 @@ function merge_ops(circuit::Circuit)
 end
 
 """TODO docstring"""
-function remove_pauliconditional(circuit::Circuit)
-    # turn pauli conditionals into expquatpipauli
-end
-
-"""TODO docstring"""
 function remove_clifford(circuit::Circuit)
     validate_circuit(circuit)
     for index in find_measurement_indices(circuit)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     return circuit
+end
+
+"""TODO docstring"""
+function remove_nonclifford(circuit::Circuit)
+    num_non_clifford=length(find_nonclifford_indices(circuit))
+    for i in 1:num_non_clifford
+        gadgetize(circuit)
+    end
 end
 
 """TODO docstring"""
