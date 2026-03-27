@@ -15,15 +15,18 @@ end
 
 function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
     len=length(s)
-    result = check_PPM(s, op, num_qubits)
-    if result[3] === nothing
-        if result[2]<=len
-            return rand([0x0,0x2])
+    projection = check_PPM(s, op, num_qubits)
+    if projection[3] === nothing
+        if projection[2]<=len
+            result = rand(Bool[0,1])
+            return classical_random_result(result)
         else
-            quantum_measurement(op)
+            result = Bool(quantum_measurement(op)>>1)
+            return quantum_result(result)
         end
     else
-        return result[3]
+        result = Bool(projection[3]>>1)
+        return classical_deterministic_result(result)
     end
 end
 
