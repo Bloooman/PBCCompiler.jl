@@ -94,6 +94,24 @@ function preprocess_circuit(circuit::Circuit)
 end
 
 """TODO docstring"""
+function remove_pauliconditional(circuit::Circuit)
+    len=length(circuit)
+    for i in 1:len
+        op=circuit[i]
+        @match op begin
+            PauliConditional(cp, cq, tp, tq) => begin
+                op_1=ExpQuatPiPauli(-cp, cq)
+                op_2=ExpQuatPiPauli(-tp, tq)
+                op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+                splice!(circuit, i, (op_3, op_2, op_1))
+            end
+            _ => nothing
+        end
+    end
+end
+
+
+"""TODO docstring"""
 function remove_nonclifford(circuit::Circuit)
     num_non_clifford=length(find_nonclifford_indices(circuit))
     for i in 1:num_non_clifford
