@@ -110,12 +110,12 @@ function remove_pauliconditional(circuit::Circuit)
     end
 end
 
-
 """TODO docstring"""
-function remove_nonclifford(circuit::Circuit)
-    num_non_clifford=length(find_nonclifford_indices(circuit))
-    for i in 1:num_non_clifford
-        gadgetize(circuit)
+function group_nonclifford(circuit::Circuit)
+    if find_nonclifford_indices(circuit) != []
+        for index in find_nonclifford_indices(circuit)
+            circuit=traversal(circuit, conjugate, :left, 1, index-1)
+        end
     end
 end
 
@@ -125,17 +125,20 @@ function merge_ops(circuit::Circuit)
 end
 
 """TODO docstring"""
-function remove_pauliconditional(circuit::Circuit)
-    # turn pauli conditionals into expquatpipauli
-end
-
-"""TODO docstring"""
 function remove_clifford(circuit::Circuit)
     validate_circuit(circuit)
     for index in find_measurement_indices(circuit)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     return circuit
+end
+
+"""TODO docstring"""
+function remove_nonclifford(circuit::Circuit)
+    num_non_clifford=length(find_nonclifford_indices(circuit))
+    for i in 1:num_non_clifford
+        gadgetize(circuit)
+    end
 end
 
 """TODO docstring"""

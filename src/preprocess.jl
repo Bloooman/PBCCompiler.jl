@@ -68,22 +68,6 @@ function find_nonclifford_indices(circuit::Circuit)
     return nonclifford_indices
 end
 
-function group_nonclifford(circuit::Circuit)
-    if find_nonclifford_indices(circuit) != []
-        for index in find_nonclifford_indices(circuit)
-            circuit=traversal(circuit, conjugate, :left, 1, index-1)
-        end
-    end
-end
-
-function remove_clifford(circuit::Circuit)
-    validate_circuit(circuit)
-    group_nonclifford(circuit)
-    for index in find_measurement_indices(circuit)
-        circuit=traversal(circuit, conjugate, :left, 1, index-1)
-    end
-    return circuit
-end
 
 function gadgetize(circuit::Circuit)
     num_input_qubit=get_circuit_width(circuit)
