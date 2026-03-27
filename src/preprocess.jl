@@ -12,6 +12,14 @@ function validate_CircuitOp(op::CircuitOp.Type)
     if length(p) != length(q)
         throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
     end
+    @match op begin
+        CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
+            if cq == Int64[] || tq == Int64[]
+                throw(PauliQubitMismatchError("$name($p, $q): Pauli String can't be empty"))
+            end
+        end
+        _ => nothing
+    end
 end
 
 function validate_circuit(circuit::Circuit)
