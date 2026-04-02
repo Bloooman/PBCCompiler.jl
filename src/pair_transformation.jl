@@ -34,6 +34,7 @@ function affectedpaulis(op::CircuitOp.Type)
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpEighPiPauli(pauli, qubits) => pauli
         CircuitOp.PauliConditional(cp, cq, tp, tq) => vcat(cp, tp)
+        CircuitOp.BitConditional(inner_op, bit) => affectedpaulis(inner_op)
     end
     return pauli
 end
@@ -156,8 +157,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     conjugated_op=@match (op1, op2) begin
      #scenario 1: one is a BitControlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
-            name=variant_name(inner_op)
-            println("Invaid input: Need to determine $name present first")
+            return nothing
         end
     #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin

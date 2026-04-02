@@ -53,6 +53,8 @@ function find_measurement_indices(circuit::Circuit)
     for (index, op) in enumerate(circuit)
         if isa_variant(op,CircuitOp.Measurement)
             push!(measurement_indices, index)
+        else
+            nothing
         end
     end
     return measurement_indices
@@ -83,7 +85,7 @@ function gadgetize(circuit::Circuit)
                 Q=affectedqubits(op)
                 magic_state=[num_input_qubit+num_magic_state]
                 Pauli=tensor(P,P"Z")
-                Qubit=append!(Q,magic_state)
+                Qubit=[Q;magic_state]
                 magic_bit_1=num_bit+2*num_magic_state-1
                 magic_bit_2=num_bit+2*num_magic_state
                 Measurement_1=CircuitOp.Measurement(Pauli,magic_bit_1,Qubit)

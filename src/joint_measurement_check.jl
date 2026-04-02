@@ -12,21 +12,30 @@ function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     end
 end
 
+"""
+0x00 denotes +1 eigenvalue, 0x02 denotes -1 eigenvalue
+0 denotes +1 eigenvalue, 1 denotes -1 eigenvalue
+false denotes +1 eigenvalue, true denotes -1 eigenvalue
+"""
 
 function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
     len=length(s)
     projection = check_PPM(s, op, num_qubits)
-    if projection[3] === nothing
-        if projection[2]<=len
-            result = rand(Bool[0,1])
-            return classical_random_result(result)
-        else
-            result = Bool(quantum_measurement(op)>>1)
-            return quantum_result(result)
-        end
+    if projection === nothing
+        return nothing
     else
-        result = Bool(projection[3]>>1)
-        return classical_deterministic_result(result)
+        if projection[3] === nothing
+            if projection[2]<=len
+                result = rand(Bool[0,1])
+                return (classical_random_result(result),projection[2])
+            else
+                result = Bool(quantum_measurement(op)>>1)
+                return quantum_result(result)
+            end
+        else
+            result = Bool(projection[3]>>1)
+            return classical_deterministic_result(result)
+        end
     end
 end
 
