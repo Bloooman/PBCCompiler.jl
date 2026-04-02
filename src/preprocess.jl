@@ -71,32 +71,26 @@ function find_nonclifford_indices(circuit::Circuit)
 end
 
 
-function gadgetize(circuit::Circuit)
-    num_input_qubit=get_circuit_width(circuit)
+function gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magic_state::Int)
+    op=circuit[index]
     num_bit=get_bit_number(circuit)
-    num_magic_state=0
-    gadgetized_circuit=circuit
-    len=length(gadgetized_circuit)
-        for index in 1:len
-            op=circuit[index]
-            if isa_variant(op,CircuitOp.ExpEighPiPauli)
-                num_magic_state+=1
-                P=affectedpaulis(op)
-                Q=affectedqubits(op)
-                magic_state=[num_input_qubit+num_magic_state]
-                Pauli=tensor(P,P"Z")
-                Qubit=[Q;magic_state]
-                magic_bit_1=num_bit+2*num_magic_state-1
-                magic_bit_2=num_bit+2*num_magic_state
-                Measurement_1=CircuitOp.Measurement(Pauli,magic_bit_1,Qubit)
-                Measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
-                BitConditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
-                BitConditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
-                gadget=[Measurement_1, Measurement_2, BitConditional_1, BitConditional_2]
-                splice!(gadgetized_circuit, index, gadget)
-            end
-        end
-    return (gadgetized_circuit, num_magic_state)
+    if isa_variant(op,CircuitOp.ExpEighPiPauli)
+        P=affectedpaulis(op)
+        Q=affectedqubits(op)
+        magic_state=[num_input_qubit+num_magic_state]
+        Pauli=tensor(P,P"Z")
+        Qubit=[Q;magic_state]
+        magic_bit_1=num_bit+2*num_magic_state-1
+        magic_bit_2=num_bit+2*num_magic_state
+        Measurement_1=CircuitOp.Measurement(Pauli,magic_bit_1,Qubit)
+        Measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
+        BitConditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
+        BitConditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
+        gadget=[Measurement_1, Measurement_2, BitConditional_1, BitConditional_2]
+        splice!(circuit, index, gadget)
+    else
+        nothing
+    end
 end
 
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)

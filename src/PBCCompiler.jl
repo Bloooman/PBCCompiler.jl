@@ -137,8 +137,12 @@ end
 """TODO docstring"""
 function remove_nonclifford(circuit::Circuit)
     num_non_clifford=length(find_nonclifford_indices(circuit))
+    num_input_qubit=get_circuit_width(circuit)
+    num_magic_state=0
     for i in 1:num_non_clifford
-        gadgetize(circuit)
+        index=find_nonclifford_indices(circuit)[1]
+        num_magic_state=+1
+        gadgetize(circuit, index, num_input_qubit, num_magic_state)
     end
 end
 
