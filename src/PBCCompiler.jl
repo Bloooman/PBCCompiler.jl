@@ -68,7 +68,6 @@ include("affectedqubits.jl")
 include("plotting.jl")
 include("pair_transformation.jl")
 include("preprocess.jl")
-include("joint_measurement_check.jl")
 include("Random_Circuit.jl")
 ##
 
@@ -220,6 +219,7 @@ struct ComputerState
     memory_state::test_MemoryState
 end
 
+include("joint_measurement_check.jl")
 ##
 
 function get_CompState(circuit::Circuit, input_state::Stabilizer)
@@ -267,7 +267,10 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
     MS.measurement_results[i]=MR
     MS.classical_register[i]=MR.result
     @match MR.result_type begin
-        ClassicalDetermRes() => nothing
+        ClassicalDetermRes() => begin
+            @debug("This measurement outputs classical random result")
+            nothing
+        end
         QuantumRes() => begin
             @debug("This measurement outputs Quantum Result")
             paulistring=embed(size(MS.StabilizerGroup)[2], Meas_i.qubits, Meas_i.pauli)
