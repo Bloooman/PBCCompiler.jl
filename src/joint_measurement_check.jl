@@ -1,6 +1,15 @@
 """
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
+function find_BitConditional_indices(circuit::Circuit)
+    BitConditional_indices = []
+    for (index, op) in enumerate(circuit)
+        if isa_variant(op, CircuitOp.BitConditional)
+            push!(BitConditional_indices, index)
+        end
+    end
+    return BitConditional_indices
+end
 
 function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     if !isa_variant(op,CircuitOp.Measurement)
@@ -51,6 +60,36 @@ function quantum_measurement(op::CircuitOp.Type)
             return 0x02
         else
             return nothing
+        end
+    end
+end
+
+
+function resolve_conditionals(compstate::ComputerState)
+    CS=compstate
+    circuit=CS.circuit
+    MS=CS.memory_state
+    creg=MS.classical_register
+    index=find_BitConditional_indices(circuit)
+    for i in index
+        @debug("Start resoving BitConditional at $i")
+        operation=circuit[i]
+        control_bit=creg[operation.bit]
+        if control_bit !== nothing
+            if control_bit
+                @debug("$i has a controlled bit")
+                splice!(circuit, i, [operation.op])
+                @debug("$i Resolved")
+                preprocess_circuit(circuit)
+                break
+            else
+                deleteat!(circuit, i)
+                @debug("No correction needed")
+                break
+            end
+        else
+            @debug("Control Bit undetermined")
+            nothing
         end
     end
 end
