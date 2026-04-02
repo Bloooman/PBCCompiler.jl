@@ -192,6 +192,20 @@ struct MemoryState
     magic_state::Any
 end
 
+struct test_MemoryState
+
+    pauli_qubits::Vector{Int}
+
+    magic_qubits::Vector{Int}
+
+    measurement_results::Vector{MeasurementResult}
+
+    StabilizerGroup::Stabilizer
+
+    classical_register::Vector{Union{Nothing,Bool}}
+end
+
+
 """TODO docstring"""
 struct ComputerState
     """TODO docstring"""
@@ -199,10 +213,24 @@ struct ComputerState
     """TODO docstring"""
     instruction_pointer::Int
     """TODO docstring"""
-    memory_state::MemoryState
+    memory_state::test_MemoryState
 end
 
 ##
+
+function get_CompState(circuit::Circuit, input_state::Stabilizer)
+    num_pauli_qubits=get_circuit_width(circuit)
+    PauliQubits=Int[1:num_pauli_qubits;]
+    preprocess_circuit(circuit)
+    MagicQubits=Int[num_pauli_qubits+1: get_circuit_width(circuit);]
+    num_bits=get_bit_number(circuit)
+    MeasRes=Vector{MeasurementResult}(undef, num_bits)
+    creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
+    Stabilier_Group=make_stabilizer_list(input_state, circuit)
+    MS=test_MemoryState(PauliQubits, MagicQubits, MeasRes, Stabilier_Group, creg)
+    CS=ComputerState(circuit, 1, MS)
+    return CS
+end
 
 """TODO docstring"""
 function next_quantum_step(compstate::ComputerState)
@@ -223,8 +251,37 @@ abstract type QuantumRuntime end
 struct MockRuntime <: QuantumRuntime end
 
 """TODO docstring"""
-function do_quantum_step(compstate::ComputerState, measurement, runtime::Type{<:QuantumRuntime}=MockRuntime)
+function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntime}=MockRuntime)
     # run the quantum measurement, appropriately updating MemoryState
+    circuit=compstate.circuit
+    i=compstate.instruction_pointer
+    MS=compstate.memory_state
+    @debug("Now working with $i th measurement")
+    Meas_i=popfirst!(circuit)
+    CheckList=MS.StabilizerGroup
+    (MR,j)=get_measurement_result(CheckList, Meas_i, get_circuit_width(circuit))
+    MS.measurement_results[i]=MR
+    MS.classical_register[i]=MR.result
+    @match MR.result_type begin
+        ClassicalDetermRes() => nothing
+        QuantumRes() => begin
+            @debug("This measurement outputs Quantum Result")
+            paulistring=embed(size(MS.StabilizerGroup)[2], Meas_i.qubits, Meas_i.pauli)
+            a_stabilizer= Stabilizer([paulistring])
+            vcat(MS.StabilizerGroup,a_stabilizer)
+        end
+        ClassicalRandomRes() => begin
+            @debug("This measurement outputs Classical Random Result")
+            q_1=[1:get_circuit_width(circuit);]
+            Q_1=ExpQuatPiPauli(CheckList[j],q_1)
+            p_2=(-1)^MR.result*Meas_i.pauli
+            Q_2=ExpQuatPiPauli(p_2,Meas_i.qubits)
+            pushfirst!(circuit,Q_1,Q_2,Q_1)
+            preprocess_circuit(circuit)
+        end
+    end
+    i=i+1
+    return ComputerState(circuit, i, MS)
 end
 
 """TODO docstring"""
