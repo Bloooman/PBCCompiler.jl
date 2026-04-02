@@ -262,15 +262,13 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
     MS=compstate.memory_state
     @debug("Now working with $i th measurement")
     Meas_i=popfirst!(circuit)
+    bit_index=Meas_i.bit
     CheckList=MS.StabilizerGroup
     (MR,j)=get_measurement_result(CheckList, Meas_i, get_circuit_width(circuit))
-    MS.measurement_results[i]=MR
-    MS.classical_register[i]=MR.result
+    MS.measurement_results[bit_index]=MR
+    MS.classical_register[bit_index]=MR.result
     @match MR.result_type begin
-        ClassicalDetermRes() => begin
-            @debug("This measurement outputs classical random result")
-            nothing
-        end
+        ClassicalDetermRes() => nothing
         QuantumRes() => begin
             @debug("This measurement outputs Quantum Result")
             paulistring=embed(size(MS.StabilizerGroup)[2], Meas_i.qubits, Meas_i.pauli)
