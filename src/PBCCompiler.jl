@@ -292,13 +292,27 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
 end
 
 """TODO docstring"""
-function run(circuit::Circuit)
+function run(input_circuit::Circuit, input_state::Stabilizer)
     # run preprocessing
     # prepare ComputerState
-    while true
+    validate_circuit(input_circuit)
+    validate_input(input_circuit,input_state)
+    CS = get_CompState(input_circuit, input_state)
+    len=length(CS.memory_state.classical_register)
+    while true && !isempty(CS.circuit)
+        @debug("Working on $(CS.instruction_pointer) th PPM")
         # run next_quantum_step and do_quantum_step until there is no next step
+        resolve_conditionals(CS)
+        @debug("After BitConditional resolved, the circuit becomes: \n$(join(CS.circuit, "\n"))")
+        CS=do_quantum_step(CS)
+        @debug("Performed $pointer th PPM")
+        @debug("After PPM resolved, the circuit becomes: \n$(join(CS.circuit, "\n"))")
+        if CS.instruction_pointer>len
+            break
+        end
+        @debug("Current classical register: $(CS.memory_state.classical_register)")
     end
-    return # measurement results
+    return CS
 end
 
 end # module PBCCompiler
