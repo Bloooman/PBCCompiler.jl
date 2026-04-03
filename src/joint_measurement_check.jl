@@ -85,6 +85,7 @@ function resolve_conditionals(compstate::ComputerState)
             else
                 deleteat!(circuit, i)
                 @debug("No correction needed")
+                preprocess_circuit(circuit)
                 break
             end
         else

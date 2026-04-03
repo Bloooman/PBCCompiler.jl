@@ -230,8 +230,8 @@ function get_CompState(circuit::Circuit, input_state::Stabilizer)
     num_bits=get_bit_number(circuit)
     MeasRes=Vector{MeasurementResult}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    Stabilier_Group=make_stabilizer_list(input_state, circuit)
-    MS=test_MemoryState(PauliQubits, MagicQubits, MeasRes, Stabilier_Group, creg)
+    Stabilzier_Group=make_stabilizer_list(input_state, circuit)
+    MS=test_MemoryState(PauliQubits, MagicQubits, MeasRes, Stabilzier_Group, creg)
     CS=ComputerState(circuit, 1, MS)
     return CS
 end
@@ -273,7 +273,8 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
             @debug("This measurement outputs Quantum Result")
             paulistring=embed(size(MS.StabilizerGroup)[2], Meas_i.qubits, Meas_i.pauli)
             a_stabilizer= Stabilizer([paulistring])
-            vcat(MS.StabilizerGroup,a_stabilizer)
+            StabilizerGroup=vcat(MS.StabilizerGroup,a_stabilizer)
+            MS=test_MemoryState(MS.pauli_qubits, MS.magic_qubits, MS.measurement_results, StabilizerGroup, MS.classical_register)
         end
         ClassicalRandomRes() => begin
             @debug("This measurement outputs Classical Random Result")
