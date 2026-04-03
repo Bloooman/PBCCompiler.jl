@@ -261,7 +261,8 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
     i=compstate.instruction_pointer
     MS=compstate.memory_state
     @debug("Now working with $i th measurement")
-    Meas_i=popfirst!(circuit)
+    Meas_List = find_measurement_indices(circuit)
+    Meas_i=circuit[Meas_List[i]]
     bit_index=Meas_i.bit
     CheckList=MS.StabilizerGroup
     (MR,j)=get_measurement_result(CheckList, Meas_i, get_circuit_width(circuit))
