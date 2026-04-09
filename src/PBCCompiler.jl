@@ -154,23 +154,23 @@ end
 
 ##
 
-"""TODO docstring"""
+"""ADT representing different types of measurement result"""
 @data MeasurementResultType begin
-    """TODO docstring"""
+    """Denoting measurement results that classically determined by a coin flip"""
     ClassicalDetermRes
-    """TODO docstring"""
+    """Denoting measurement results that are classically determined by stored eigenvalues of stabilizers"""
     ClassicalRandomRes
-    """TODO docstring"""
+    """Denoting measurement results that require performing actual quantum measurement"""
     QuantumRes
 end
 
 using .MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 
-"""TODO docstring"""
+"""Struct holding measurement result value and its type"""
 struct MeasurementResult
-    """TODO docstring"""
+    """Single bit measurement result in boolean"""
     result::Union{Bool,Nothing}
-    """TODO docstring"""
+    """Measurement result type of this result (ClassicalDetermRes, ClassicalRandomRes, QuantumRes)"""
     result_type::MeasurementResultType.Type
 end
 
@@ -195,27 +195,28 @@ struct MemoryState
     magic_state::Any
 end
 
+"""Struct that contains information describing current quantum state"""
 struct test_MemoryState
-
+    """Vector that contains index of all data qubits that hold circuit input"""
     pauli_qubits::Vector{Int}
-
+    """Vector that contains index of all qubits that hold magic states"""
     magic_qubits::Vector{Int}
-
+    """Vector that holds all MeasurementResult"""
     measurement_results::Vector{MeasurementResult}
-
+    """Stabilizer object that describes current quantum state"""
     StabilizerGroup::Stabilizer
-
+    """Vector that holds all classical bits storing corresponding measurement results"""
     classical_register::Vector{Union{Nothing,Bool}}
 end
 
 
-"""TODO docstring"""
+"""Struct that contains current state of compiler"""
 struct ComputerState
-    """TODO docstring"""
+    """Contain current circuit object"""
     circuit::Circuit
-    """TODO docstring"""
+    """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
-    """TODO docstring"""
+    """Contain current quantum state"""
     memory_state::test_MemoryState
 end
 
