@@ -1,6 +1,15 @@
 """
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
+
+function validate_input(circuit::Circuit, input::Stabilizer)
+    if get_circuit_width(circuit)<length(input[1])
+        throw(ArgumentError("Input state has more qubits than circuit input"))
+    else
+        nothing
+    end
+end
+
 function find_BitConditional_indices(circuit::Circuit)
     BitConditional_indices = []
     for (index, op) in enumerate(circuit)
