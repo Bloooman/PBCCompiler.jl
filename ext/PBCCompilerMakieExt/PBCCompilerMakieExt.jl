@@ -5,7 +5,7 @@ using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, affectedqubits
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -212,5 +212,46 @@ function circuitplot_axis(subfig, circuit::Circuit; kwargs...)
 
     return (subfig, ax, p)
 end
+
+"""
+    plot_histogram(data)
+
+Plot a histogram of integer-valued `data` using CairoMakie.
+
+- Each bar is centered over its integer value, with the x-axis label appearing
+  directly below the bar (not at bar edges).
+- X-axis tick labels are shown as bitstrings.
+- The frequency count is labeled on top of each bar.
+"""
+function plot_histogram(data)
+    freq_dict = Dict{Int,Int}()
+    for v in data
+        freq_dict[v] = get(freq_dict, v, 0) + 1
+    end
+    values = sort(collect(keys(freq_dict)))
+    freqs  = [freq_dict[v] for v in values]
+
+    fig = Figure()
+    ax  = Axis(fig[1, 1])
+
+    barplot!(ax, values, freqs; width = 1.0, gap = 0.0)
+
+    # X-axis: one tick per unique value, labeled as compact bitstring
+    # Use only as many bits as needed to represent the largest value
+    nbits = values[end] == 0 ? 1 : Int(ceil(log2(values[end] + 1)))
+    ax.xticks = (values, [string(v, base=2, pad=nbits) for v in values])
+    ax.xticklabelrotation = π / 2
+    ax.title = "Measurement Result Distribution"
+    ax.ylabel = "Count"
+    ax.xlabel = "Bitstring"
+
+    # Frequency labels on top of each bar
+    for (v, f) in zip(values, freqs)
+        text!(ax, v, f; text = string(f), align = (:center, :bottom))
+    end
+
+    return fig
+end
+
 
 end # module
