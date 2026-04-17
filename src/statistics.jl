@@ -1,4 +1,4 @@
-function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots::Int)
+function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots::Int=1000)
     num_bits = get_circuit_width(input_circuit)
     len = 2^num_bits
     distribution = zeros(Int, len)

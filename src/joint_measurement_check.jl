@@ -95,9 +95,9 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
     end
 end
 
-function quantum_measurement(sm::GeneralizedStabilizer, p::PauliOperator, dummy::Bool)
+function quantum_measurement(sm::Union{GeneralizedStabilizer,nothing}, p::PauliOperator, dummy::Bool)
     if dummy
-        return +1
+        return (sm,+1)
     else
         return projectrand!(sm,p)
     end

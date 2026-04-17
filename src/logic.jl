@@ -71,7 +71,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
 end
 
 """TODO docstring"""
-function run(input_circuit::Circuit, input_state::Stabilizer)
+function run(input_circuit::Circuit, input_state::Stabilizer, dummy::Bool=false)
     # run preprocessing
     # prepare ComputerState
     validate_circuit(input_circuit)
@@ -82,7 +82,7 @@ function run(input_circuit::Circuit, input_state::Stabilizer)
         "Initial number of qubits $num_q"
     end _group=:api
     validate_input(input_circuit,input_state)
-    CS = get_CompState(input_circuit, input_state)
+    CS = get_CompState(input_circuit, input_state, dummy)
     @debug "Number of pauli qubits:" CS.memory_state.pauli_qubits _group=:api
     @debug "Number of magic qubits:" CS.memory_state.magic_qubits _group=:api
     len=length(CS.memory_state.classical_register)

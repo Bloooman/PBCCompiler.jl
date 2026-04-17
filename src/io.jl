@@ -33,8 +33,8 @@ function parse_input(filepath::String)::Circuit
             # measure q[i] -> c[j];
             m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
             if m !== nothing
-                q = parse(Int, m[1])
-                c = parse(Int, m[2])
+                q = parse(Int, m[1])+1
+                c = parse(Int, m[2])+1
                 push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
                 continue
             end
@@ -42,9 +42,18 @@ function parse_input(filepath::String)::Circuit
             # cx q[ctrl],q[tgt];
             m = match(r"^[Cc][Xx]\s+\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\];$", line)
             if m !== nothing
-                ctrl = parse(Int, m[1])
-                tgt  = parse(Int, m[2])
+                ctrl = parse(Int, m[1])+1
+                tgt  = parse(Int, m[2])+1
                 push!(circuit, CircuitOp.PauliConditional(P"Z", [ctrl], P"X", [tgt]))
+                continue
+            end
+
+            # ccx q[ctrl],q[ctrl],q[tgt];
+            m = match(r"^[Cc][Cc][Xx]\s+\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\],\s*\w+\[(\d+)\];$", line)
+            if m !== nothing
+                ctrl = [parse(Int, m[1])+1, parse(Int, m[2])+1]
+                tgt  = parse(Int, m[3])+1
+                push!(circuit, CircuitOp.PauliConditional(P"ZZ", ctrl, P"X", [tgt]))
                 continue
             end
 
@@ -52,7 +61,7 @@ function parse_input(filepath::String)::Circuit
             m = match(r"^(\w+)\s+\w+\[(\d+)\];$", line)
             if m !== nothing
                 gate = m[1]
-                q    = parse(Int, m[2])
+                q    = parse(Int, m[2])+1
                 append!(circuit, _single_qubit_ops(gate, q))
                 continue
             end
