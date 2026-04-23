@@ -55,3 +55,17 @@ Plot a histogram of integer-valued `data` using CairoMakie.
 - The frequency count is labeled on top of each bar.
 """
 function plot_histogram end
+
+"""
+    plot_interaction(weights::AbstractMatrix{<:Real}) -> Figure
+
+Plot the interaction graph G(V,E) from an adjacency matrix.
+
+Vertices V correspond to indices 1..n (row/column indices of `weights`).
+Element `weights[i,j]` is the edge weight of the edge between vertex i and vertex j.
+Only edges with nonzero weight are drawn; edge thickness and opacity scale with weight.
+Edge weights are labelled at edge midpoints.
+
+Returns a CairoMakie `Figure`.
+"""
+function plot_interaction end

@@ -5,7 +5,7 @@ using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, affectedqubits
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_interaction
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -252,6 +252,57 @@ function plot_histogram(data)
 
     return fig
 end
+
+"""
+    plot_interaction(weights::AbstractMatrix{<:Real}) -> Figure
+
+Plot the interaction graph G(V,E) from an adjacency matrix.
+
+Vertices V correspond to indices 1..n (row/column indices of `weights`).
+Element `weights[i,j]` is the edge weight of the edge between vertex i and vertex j.
+Only edges with nonzero weight are drawn; edge thickness and opacity scale with weight.
+Edge weights are labelled at edge midpoints.
+
+Returns a CairoMakie `Figure`.
+"""
+function plot_interaction(weights::AbstractMatrix{<:Real})
+    n = size(weights, 1)
+
+    fig = Figure(size=(600, 600))
+    ax = Axis(fig[1,1], title="Interaction Graph",
+              aspect=DataAspect(), limits=(-1.5, 1.5, -1.5, 1.5))
+    hidedecorations!(ax)
+    hidespines!(ax)
+
+    if n == 0 || all(iszero, weights)
+        return fig
+    end
+
+    angles = [2π * (i-1) / n - π/2 for i in 1:n]
+    xs = cos.(angles)
+    ys = sin.(angles)
+
+    max_w = maximum(weights)
+
+    for i in 1:n, j in i+1:n
+        w = weights[i, j]
+        iszero(w) && continue
+        frac = w / max_w
+        lines!(ax, [xs[i], xs[j]], [ys[i], ys[j]];
+               color=(:gray20, 0.3 + 0.7 * frac), linewidth=1 + 3 * frac)
+        mx, my = (xs[i] + xs[j]) / 2, (ys[i] + ys[j]) / 2
+        text!(ax, mx, my; text=string(w), fontsize=11, align=(:center, :center))
+    end
+
+    scatter!(ax, xs, ys; markersize=35, color=:steelblue)
+    for i in 1:n
+        text!(ax, xs[i], ys[i]; text=string(i), fontsize=14,
+              align=(:center, :center), color=:white)
+    end
+
+    return fig
+end
+
 
 
 end # module
