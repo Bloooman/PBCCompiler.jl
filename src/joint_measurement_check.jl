@@ -95,7 +95,7 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
     end
 end
 
-function quantum_measurement(sm::Union{GeneralizedStabilizer,nothing}, p::PauliOperator, dummy::Bool)
+function quantum_measurement(sm::Union{GeneralizedStabilizer, Nothing}, p::PauliOperator, dummy::Bool)
     if dummy
         return (sm,+1)
     else
