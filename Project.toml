@@ -7,10 +7,12 @@ authors = ["Stefan Krastanov <stefan@krastanov.org>"]
 projects = ["benchmark", "docs"]
 
 [deps]
+Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 Moshi = "2e0e35c7-a2e4-4343-998d-7ef72827ed2d"
 QuantumClifford = "0525e862-1e90-11e9-3e4d-1b39d7109de1"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+SimpleWeightedGraphs = "47aef6b3-ad0c-573a-a1e2-d07658019622"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [weakdeps]
@@ -20,10 +22,12 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 PBCCompilerMakieExt = "Makie"
 
 [compat]
+Graphs = "1.14.0"
 JLD2 = "0.6.4"
 Makie = "0.24"
 Moshi = "0.3"
 QuantumClifford = "0.10, 0.11"
 Random = "1.11.0"
+SimpleWeightedGraphs = "1.5.1"
 StatsBase = "0.34.10"
 julia = "1.12"
