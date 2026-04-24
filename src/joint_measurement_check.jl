@@ -80,11 +80,13 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
                 result = rand(Bool[0,1])
                 return (classical_random_result(op.pauli, result),projection[2])
             else
-                if quantum_state === nothing
-                    print(compstate.circuit)
+                if dummy
+                    return (quantum_result(op.pauli, false),projection[2],quantum_state)
+                elseif  quantum_state === nothing
+                    throw(ArgumentError("Magic State not initiated"))
                 else
                     real_p=op.pauli[MagicQubits]
-                    (quantum_state, result) = quantum_measurement(quantum_state, real_p, dummy)
+                    (quantum_state, result) = projectrand!(quantum_state, real_p)
                     return (quantum_result(op.pauli, Bool(result>>1)),projection[2],quantum_state)
                 end
             end
@@ -92,14 +94,6 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
             result = Bool(projection[3]>>1)
             return (classical_deterministic_result(op.pauli, result),projection[2])
         end
-    end
-end
-
-function quantum_measurement(sm::Union{GeneralizedStabilizer, Nothing}, p::PauliOperator, dummy::Bool)
-    if dummy
-        return (sm,+1)
-    else
-        return projectrand!(sm,p)
     end
 end
 
