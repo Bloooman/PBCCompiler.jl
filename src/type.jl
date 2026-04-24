@@ -151,18 +151,31 @@ function Base.show(io::IO, result::ComputerState)
     println(io, "ComputerState")
     println(io, "  Pauli Qubits:    ", ms.pauli_qubits)
     println(io, "  Magic Qubits:    ", ms.magic_qubits)
-    n = length(ms.measurement_results)
-    println(io, "  Measurements ($n):")
-    for (i, m) in enumerate(ms.measurement_results)
-        println(io, "    [$i] ", m.pauli,
-                    "  →  ", _bool_str(m.result),
-                    "  (", _result_type_str(m.result_type), ")")
-    end
-    quantum = filter(m -> m.result_type == QuantumRes(), ms.measurement_results)
-    println(io, "  Quantum Measurement Results ($(length(quantum))):")
-    for (i, m) in enumerate(quantum)
-        println(io, "    [$i] ", _magic_pauli_str(m.pauli, ms.magic_qubits),
-                    "  →  ", _bool_str(m.result))
+    if !isdefined(ms, :measurement_results)
+        println(io, "  Measurements: undefined")
+        println(io, "  Quantum Measurement Results: undefined")
+    else
+        n = length(ms.measurement_results)
+        println(io, "  Measurements ($n):")
+        for i in 1:n
+            if !isassigned(ms.measurement_results, i)
+                println(io, "    [$i] undefined")
+                continue
+            end
+            m = ms.measurement_results[i]
+            println(io, "    [$i] ", m.pauli,
+                        "  →  ", _bool_str(m.result),
+                        "  (", _result_type_str(m.result_type), ")")
+        end
+        quantum = filter(i -> isassigned(ms.measurement_results, i) &&
+                              ms.measurement_results[i].result_type == QuantumRes(),
+                         1:n)
+        println(io, "  Quantum Measurement Results ($(length(quantum))):")
+        for (j, i) in enumerate(quantum)
+            m = ms.measurement_results[i]
+            println(io, "    [$j] ", _magic_pauli_str(m.pauli, ms.magic_qubits),
+                        "  →  ", _bool_str(m.result))
+        end
     end
     print(io, "  Stabilizer Group:\n")
     show(io, ms.StabilizerGroup)
