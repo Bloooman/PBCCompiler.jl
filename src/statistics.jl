@@ -23,7 +23,7 @@ end
 
 function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
     num_nodes=maximum(vcat(result.memory_state.pauli_qubits,result.memory_state.magic_qubits))
-    g=SimpleWeightedGraph(UInt8(num_nodes))
+    g=SimpleWeightedGraph(Int64(num_nodes))
     measurements = type === nothing ?
         result.memory_state.measurement_results :
         filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
