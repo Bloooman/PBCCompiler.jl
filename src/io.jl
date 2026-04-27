@@ -1,4 +1,5 @@
 using JLD2
+using QuantumClifford
 import Base: show
 ##
 """
