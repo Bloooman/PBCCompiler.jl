@@ -43,8 +43,8 @@ function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type
         end
     end
     if type == QuantumRes()
-        for v in result.memory_state.pauli_qubits
-            rem_vertex!(g,v)
+        for h in 1:length(result.memory_state.pauli_qubits)
+            rem_vertex!(g,1)
         end
     end
     return g
