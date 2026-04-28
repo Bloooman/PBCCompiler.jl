@@ -103,6 +103,10 @@ function gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magic
     end
 end
 
+
+"""
+For input stabilizer state not describing all input qubit state, complete the stabilizer group into incomplete stabilizer group describing all input qubits
+"""
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)
     num_pauli_qubits = length(s)

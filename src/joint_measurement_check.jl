@@ -45,6 +45,11 @@ function create_magic_state(num_magic::Int)
 
 end
 
+"""
+Function that performs commutation and depedency checks on Pauli Product Measurement according to stabilizer list
+Return (Stabilizer, anti-commuting stabilizer index, measurement result in UInt8 (nothing if can't be determined))
+In the case that PPM is commuting and independent, second field will return index = length(Stabilizer)+1, third field nothing
+"""
 function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     if !isa_variant(op,CircuitOp.Measurement)
         return nothing
