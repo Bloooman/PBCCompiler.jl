@@ -5,3 +5,7 @@
 - Basic datastructures for representing circuits through ADT with Moshi.jl
 - Basic circuit traversal routines
 - Plotting extension through Makie.jl
+
+## Unreleased
+
+- Functions realizing pair transformation operations between a pair of circuit operations

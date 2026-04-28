@@ -179,7 +179,7 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
      #scenario 1: one is a BitControlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
             name=variant_name(inner_op)
-            println("Invaid input: Need to determine $name present first")
+            println("Invalid input: Need to determine $name present first")
         end
     #scenario 2: Conjugated by a PauliControlled gate
         (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
