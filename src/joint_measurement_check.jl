@@ -1,5 +1,5 @@
 """
-Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+Helper functions to Perform Joint measurement on Pauli Product Measurements
 """
 
 function _validate_input(circuit::Circuit, input::Stabilizer)
@@ -20,6 +20,7 @@ function _find_BitConditional_indices(circuit::Circuit)
     return BitConditional_indices
 end
 
+"""Perform Commutativity/Dependencies Check on Pauli Product Measurement with Stabilizer list"""
 function _check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     if !isa_variant(op,CircuitOp.Measurement)
         return nothing
@@ -36,6 +37,10 @@ end
 false denotes +1 eigenvalue, true denotes -1 eigenvalue
 """
 
+"""
+Perform Joint Measurement on CircuitOp if it's a CircuitOp.Measurement
+Store results as corresponding measurement type: classical_random_result, classical_deterministic_result, quantum_result
+"""
 function _get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
     len=length(s)
     projection = _check_PPM(s, op, num_qubits)
@@ -73,7 +78,7 @@ function quantum_measurement(op::CircuitOp.Type)
     end
 end
 
-
+"""Resolve conditional circuit operations defined by CircuitOp.BitConditional"""
 function resolve_conditionals(compstate::ComputerState)
     CS=compstate
     circuit=CS.circuit

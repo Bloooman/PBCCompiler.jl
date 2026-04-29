@@ -232,6 +232,7 @@ end
 include("joint_measurement_check.jl")
 ##
 
+"""Get initial ComputerState using input circuit and input state"""
 function get_CompState(circuit::Circuit, input_state::Stabilizer)
     num_pauli_qubits=_get_circuit_width(circuit)
     PauliQubits=Int[1:num_pauli_qubits;]
@@ -264,7 +265,7 @@ abstract type QuantumRuntime end
 """TODO docstring -- all measurements return `nothing` and classically-trackable states are set as if result was `false`."""
 struct MockRuntime <: QuantumRuntime end
 
-"""TODO docstring"""
+"""Perform the next joint measurement and update ComputerState accordingly"""
 function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntime}=MockRuntime)
     # run the quantum measurement, appropriately updating MemoryState
     circuit=compstate.circuit
@@ -301,7 +302,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
     return ComputerState(circuit, i, MS)
 end
 
-"""TODO docstring"""
+"""Run compute/compile with provided circuit and input state(described by stabilizer group)"""
 function run(input_circuit::Circuit, input_state::Stabilizer)
     # run preprocessing
     # prepare ComputerState
