@@ -86,7 +86,7 @@ function resolve_conditionals(compstate::ComputerState)
     creg=MS.classical_register
     index=_find_BitConditional_indices(circuit)
     for i in index
-        @debug("Start resoving BitConditional at $i")
+        @debug("Start resolving BitConditional at $i")
         operation=circuit[i]
         control_bit=creg[operation.bit]
         if control_bit !== nothing
