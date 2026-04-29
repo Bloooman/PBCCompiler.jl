@@ -6,7 +6,7 @@ struct PauliQubitMismatchError <: Exception
 end
 
 """Function for checking if the pauli and qubits field denotes different number of qubits"""
-function validate_CircuitOp(op::CircuitOp.Type)
+function _validate_CircuitOp(op::CircuitOp.Type)
     p=_affectedpaulis(op)
     q=affectedqubits(op)
     name=variant_name(op)
@@ -24,13 +24,13 @@ function validate_CircuitOp(op::CircuitOp.Type)
 end
 
 """Check every CircuitOp in a circuit"""
-function validate_circuit(circuit::Circuit)
+function _validate_circuit(circuit::Circuit)
     for op in circuit
-        validate_CircuitOp(op)
+        _validate_CircuitOp(op)
     end
 end
 
-function get_circuit_width(circuit::Circuit)
+function _get_circuit_width(circuit::Circuit)
     width=0
     for i in circuit
         width=max(width,maximum(affectedqubits(i)))
@@ -38,9 +38,9 @@ function get_circuit_width(circuit::Circuit)
     return width
 end
 
-function get_bit_number(circuit::Circuit)
+function _get_bit_number(circuit::Circuit)
     num_bit=0
-    for i in find_measurement_indices(circuit)
+    for i in _find_measurement_indices(circuit)
         bits = @match circuit[i] begin
             CircuitOp.Measurement(pauli, bit, qubits) => bit
             _ => nothing
@@ -50,7 +50,7 @@ function get_bit_number(circuit::Circuit)
     return num_bit
 end
 
-function find_measurement_indices(circuit::Circuit)
+function _find_measurement_indices(circuit::Circuit)
     measurement_indices = []
     for (index, op) in enumerate(circuit)
         if isa_variant(op,CircuitOp.Measurement)
@@ -62,7 +62,7 @@ function find_measurement_indices(circuit::Circuit)
     return measurement_indices
 end
 
-function find_nonclifford_indices(circuit::Circuit)
+function _find_nonclifford_indices(circuit::Circuit)
     nonclifford_indices = []
     for (index, op) in enumerate(circuit)
         if isa_variant(op, CircuitOp.ExpEighPiPauli)
@@ -79,9 +79,9 @@ Each BitConditional CircuitOp contains a gadget(a set of four consecutive Circui
     perform a joint measurement P ⊗ Z between data and ancilla,
     then apply a conditional Clifford correction
 """
-function gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magic_state::Int)
+function _gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magic_state::Int)
     op=circuit[index]
-    num_bit=get_bit_number(circuit)
+    num_bit=_get_bit_number(circuit)
             if isa_variant(op,CircuitOp.ExpEighPiPauli)
                 P=_affectedpaulis(op)
                 Q=affectedqubits(op)
@@ -105,8 +105,8 @@ end
 s is the stabilized part of input_state defined by user in the form of a stabilzier group
 Function will expand the stabilizer group to cover the entire circuit width by adding Identities to each stabilizer
 """
-function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
-    paulilen=get_circuit_width(circuit)
+function _make_stabilizer_list(s::Stabilizer, circuit::Circuit)
+    paulilen=_get_circuit_width(circuit)
     num_pauli_qubits = length(s)
     new_s=PauliOperator[]
     pauli_qubits = collect(1:num_pauli_qubits)

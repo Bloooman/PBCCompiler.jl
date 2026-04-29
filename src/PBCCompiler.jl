@@ -112,8 +112,8 @@ end
 
 """TODO docstring"""
 function group_nonclifford(circuit::Circuit)
-    if find_nonclifford_indices(circuit) != []
-        for index in find_nonclifford_indices(circuit)
+    if _find_nonclifford_indices(circuit) != []
+        for index in _find_nonclifford_indices(circuit)
             circuit=traversal(circuit, conjugate, :left, 1, index-1)
         end
     end
@@ -121,13 +121,13 @@ end
 
 """TODO docstring"""
 function merge_ops(circuit::Circuit)
-    traversal(circuit,merge_rotations, :left, 1, :end)
+    traversal(circuit,_merge_rotations, :left, 1, :end)
 end
 
 """TODO docstring"""
 function remove_clifford(circuit::Circuit)
-    validate_circuit(circuit)
-    for index in find_measurement_indices(circuit)
+    _validate_circuit(circuit)
+    for index in _find_measurement_indices(circuit)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     return circuit
@@ -135,20 +135,20 @@ end
 
 """TODO docstring"""
 function remove_nonclifford(circuit::Circuit)
-    num_non_clifford=length(find_nonclifford_indices(circuit))
-    num_input_qubit=get_circuit_width(circuit)
+    num_non_clifford=length(_find_nonclifford_indices(circuit))
+    num_input_qubit=_get_circuit_width(circuit)
     num_magic_state=0
     for i in 1:num_non_clifford
-        index=find_nonclifford_indices(circuit)[1]
+        index=_find_nonclifford_indices(circuit)[1]
         num_magic_state=+1
-        gadgetize(circuit, index, num_input_qubit, num_magic_state)
+        _gadgetize(circuit, index, num_input_qubit, num_magic_state)
     end
 end
 
 """TODO docstring"""
 function remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
-    index=maximum(find_measurement_indices(circuit))
+    index=maximum(_find_measurement_indices(circuit))
     resize!(circuit, index)
 end
 
@@ -224,14 +224,14 @@ include("joint_measurement_check.jl")
 ##
 
 function get_CompState(circuit::Circuit, input_state::Stabilizer)
-    num_pauli_qubits=get_circuit_width(circuit)
+    num_pauli_qubits=_get_circuit_width(circuit)
     PauliQubits=Int[1:num_pauli_qubits;]
     preprocess_circuit(circuit)
-    MagicQubits=Int[num_pauli_qubits+1: get_circuit_width(circuit);]
-    num_bits=get_bit_number(circuit)
+    MagicQubits=Int[num_pauli_qubits+1: _get_circuit_width(circuit);]
+    num_bits=_get_bit_number(circuit)
     MeasRes=Vector{MeasurementResult}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    Stabilzier_Group=make_stabilizer_list(input_state, circuit)
+    Stabilzier_Group=_make_stabilizer_list(input_state, circuit)
     MS=test_MemoryState(PauliQubits, MagicQubits, MeasRes, Stabilzier_Group, creg)
     CS=ComputerState(circuit, 1, MS)
     return CS
@@ -262,11 +262,11 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
     i=compstate.instruction_pointer
     MS=compstate.memory_state
     @debug("Now working with $i th measurement")
-    Meas_List = find_measurement_indices(circuit)
+    Meas_List = _find_measurement_indices(circuit)
     Meas_i=circuit[Meas_List[i]]
     bit_index=Meas_i.bit
     CheckList=MS.StabilizerGroup
-    (MR,j)=get_measurement_result(CheckList, Meas_i, get_circuit_width(circuit))
+    (MR,j)=_get_measurement_result(CheckList, Meas_i, _get_circuit_width(circuit))
     MS.measurement_results[bit_index]=MR
     MS.classical_register[bit_index]=MR.result
     @match MR.result_type begin
@@ -280,7 +280,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
         end
         ClassicalRandomRes() => begin
             @debug("This measurement outputs Classical Random Result")
-            q_1=[1:get_circuit_width(circuit);]
+            q_1=[1:_get_circuit_width(circuit);]
             Q_1=ExpQuatPiPauli(CheckList[j],q_1)
             p_2=(-1)^MR.result*Meas_i.pauli
             Q_2=ExpQuatPiPauli(p_2,Meas_i.qubits)
@@ -296,8 +296,8 @@ end
 function run(input_circuit::Circuit, input_state::Stabilizer)
     # run preprocessing
     # prepare ComputerState
-    validate_circuit(input_circuit)
-    validate_input(input_circuit,input_state)
+    _validate_circuit(input_circuit)
+    _validate_input(input_circuit,input_state)
     CS = get_CompState(input_circuit, input_state)
     len=length(CS.memory_state.classical_register)
     while true && !isempty(CS.circuit)

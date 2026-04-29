@@ -27,14 +27,14 @@ julia> PBCCompiler.affectedpaulis(op)  # returns [1, 3]`
 ```
 """
 
-function affectedpaulis(op::CircuitOp.Type)
+function _affectedpaulis(op::CircuitOp.Type)
     pauli = @match op begin
         CircuitOp.Measurement(pauli, bit, qubits) => pauli
         CircuitOp.ExpHalfPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpEighPiPauli(pauli, qubits) => pauli
         CircuitOp.PauliConditional(cp, cq, tp, tq) => vcat(cp, tp)
-        CircuitOp.BitConditional(inner_op, bit) => affectedpaulis(inner_op)
+        CircuitOp.BitConditional(inner_op, bit) => _affectedpaulis(inner_op)
     end
     return pauli
 end
@@ -66,9 +66,9 @@ julia> PBCCompiler.complete_paulis(op1,op2)
 ```
 """
 
-function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    pu1=affectedpaulis(op1)
-    pu2=affectedpaulis(op2)
+function _complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
+    pu1=_affectedpaulis(op1)
+    pu2=_affectedpaulis(op2)
     @debug("Affected Paulis of op1: ", pu1)
     @debug("Affected Paulis of op2: ", pu2)
     qu1=affectedqubits(op1)
@@ -139,7 +139,7 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
         end
         #scenario 3: Both are Pauli Product Rotations
         _ => begin
-            (Pauli1,Pauli2)=complete_paulis(op1, op2)
+            (Pauli1,Pauli2)=_complete_paulis(op1, op2)
             commutativity=comm(Pauli1,Pauli2)
             if commutativity == 0
                 @debug("The two operations commute.")
@@ -180,14 +180,14 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         (CircuitOp.ExpHalfPiPauli(p1,q1),op) => begin
         @debug("One of the operations is a HalfPi Pauli gate.")
             if check_commutation(op1,op2) == 0
-                new_p=complete_paulis(op1, op2)[2]
+                new_p=_complete_paulis(op1, op2)[2]
                 new_qm=maximum(sort(union(q1, affectedqubits(op2))))
                 new_q=[x for x in 1:new_qm]
                 @debug("The two operations commute, no change after conjugation.")
                 @debug("The Pauli string of the conjugated operation is: ", new_p)
                 @debug("The qubits affected by the conjugated operation are: ", new_q)
             else
-                (pauli1,pauli2)=complete_paulis(op1, op2)
+                (pauli1,pauli2)=_complete_paulis(op1, op2)
                 new_p=-pauli2
                 new_qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
                 new_q=[x for x in 1:new_qm]
@@ -208,14 +208,14 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     #scenario 4: PPM Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), CircuitOp.Measurement(p2,b,q2)) => begin
             if check_commutation(op1,op2) == 0
-                new_p=complete_paulis(op1, op2)[2]
+                new_p=_complete_paulis(op1, op2)[2]
                 new_qm=maximum(sort(union(q1, q2)))
                 new_q=[x for x in 1:new_qm]
                 @debug("The two operations commute, no change after conjugation.")
                 @debug("The Pauli string of the conjugated operation is: ", new_p)
                 @debug("The qubits affected by the conjugated operation are: ", new_q)
             else
-                (pauli1,pauli2)=complete_paulis(op1, op2)
+                (pauli1,pauli2)=_complete_paulis(op1, op2)
                 new_p=1im*pauli1*pauli2
                 new_qm=maximum(sort(union(q1, q2)))
                 new_q=[x for x in 1:new_qm]
@@ -228,14 +228,14 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
     #scenario 5: PPR Conjugated by a ExpQuatPi Pauli
         (CircuitOp.ExpQuatPiPauli(p1,q1), op) => begin
             if check_commutation(op1,op2) == 0
-                new_p=complete_paulis(op1, op2)[2]
+                new_p=_complete_paulis(op1, op2)[2]
                 new_qm=maximum(sort(union(q1, affectedqubits(op2))))
                 new_q=[x for x in 1:new_qm]
                 @debug("The two operations commute, no change after conjugation.")
                 @debug("The Pauli string of the conjugated operation is: ", new_p)
                 @debug("The qubits affected by the conjugated operation are: ", new_q)
             else
-                (pauli1,pauli2)=complete_paulis(op1, op2)
+                (pauli1,pauli2)=_complete_paulis(op1, op2)
                 new_p=1im*pauli1*pauli2
                 new_qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
                 new_q=[x for x in 1:new_qm]
@@ -267,10 +267,10 @@ end
 """
 Helper functions to cancel out adjacent PPR pair
 """
-function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
+function _merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1,op2) begin
         (ExpEighPiPauli(),ExpEighPiPauli()) => begin
-            (p1,p2)=complete_paulis(op1,op2)
+            (p1,p2)=_complete_paulis(op1,op2)
             qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
             q=[x for x in 1:qm]
             if p1.xz == p2.xz
@@ -285,7 +285,7 @@ function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
         end
         (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
-            (p1,p2)=complete_paulis(op1,op2)
+            (p1,p2)=_complete_paulis(op1,op2)
             qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
             q=[x for x in 1:qm]
             if p1.xz == p2.xz
@@ -300,7 +300,7 @@ function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
         end
         (ExpHalfPiPauli(),ExpHalfPiPauli()) => begin
-            (p1,p2)=complete_paulis(op1,op2)
+            (p1,p2)=_complete_paulis(op1,op2)
             qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
             q=[x for x in 1:qm]
             if p1.xz == p2.xz

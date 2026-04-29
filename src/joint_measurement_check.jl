@@ -2,15 +2,15 @@
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
 
-function validate_input(circuit::Circuit, input::Stabilizer)
-    if get_circuit_width(circuit)<length(input[1])
+function _validate_input(circuit::Circuit, input::Stabilizer)
+    if _get_circuit_width(circuit)<length(input[1])
         throw(ArgumentError("Input state has more qubits than circuit input"))
     else
         nothing
     end
 end
 
-function find_BitConditional_indices(circuit::Circuit)
+function _find_BitConditional_indices(circuit::Circuit)
     BitConditional_indices = []
     for (index, op) in enumerate(circuit)
         if isa_variant(op, CircuitOp.BitConditional)
@@ -20,7 +20,7 @@ function find_BitConditional_indices(circuit::Circuit)
     return BitConditional_indices
 end
 
-function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
+function _check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     if !isa_variant(op,CircuitOp.Measurement)
         return nothing
     else
@@ -36,9 +36,9 @@ end
 false denotes +1 eigenvalue, true denotes -1 eigenvalue
 """
 
-function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
+function _get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
     len=length(s)
-    projection = check_PPM(s, op, num_qubits)
+    projection = _check_PPM(s, op, num_qubits)
     if projection === nothing
         return nothing
     else
@@ -79,7 +79,7 @@ function resolve_conditionals(compstate::ComputerState)
     circuit=CS.circuit
     MS=CS.memory_state
     creg=MS.classical_register
-    index=find_BitConditional_indices(circuit)
+    index=_find_BitConditional_indices(circuit)
     for i in index
         @debug("Start resoving BitConditional at $i")
         operation=circuit[i]
