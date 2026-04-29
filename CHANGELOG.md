@@ -9,3 +9,4 @@
 ## Unreleased
 
 - Functions realizing pair transformation operations between a pair of circuit operations
+- Performing preprocess on input circuit and output circuit in Pauli Product form
