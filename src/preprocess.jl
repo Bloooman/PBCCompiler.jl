@@ -5,6 +5,7 @@ struct PauliQubitMismatchError <: Exception
     msg::String
 end
 
+"""Function for checkign if the pauli and qubits field denotes different number of qubits"""
 function validate_CircuitOp(op::CircuitOp.Type)
     p=affectedpaulis(op)
     q=affectedqubits(op)
@@ -22,6 +23,7 @@ function validate_CircuitOp(op::CircuitOp.Type)
     end
 end
 
+"""Check every CircuitOp in a circuit"""
 function validate_circuit(circuit::Circuit)
     for op in circuit
         validate_CircuitOp(op)
@@ -68,7 +70,13 @@ function find_nonclifford_indices(circuit::Circuit)
     return nonclifford_indices
 end
 
-
+"""
+Function that replace all non-Clifford circuit operations with BitConditional CircuitOps
+Each BitConditional CircuitOp contains a gadget(a set of four consequtive CircuitOps) for pi/8 rotation implementation:
+    Realize pi/8 rotation by consuming a |T ⟩ ancilla state
+    perform a joint measurement P ⊗ Z between data and ancilla,
+    then apply a conditional Clifford correction
+"""
 function gadgetize(circuit::Circuit)
     num_input_qubit=get_circuit_width(circuit)
     num_bit=get_bit_number(circuit)
@@ -97,6 +105,10 @@ function gadgetize(circuit::Circuit)
     return (gadgetized_circuit, num_magic_state)
 end
 
+"""
+s is the stabilized part of input_state defined by user in the form of a stabilzier group
+Function will expand the stabilizer group to cover the entire circuit width by adding Identities to each stabilizer
+"""
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)
     num_pauli_qubits = length(s)

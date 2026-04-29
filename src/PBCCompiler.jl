@@ -83,7 +83,11 @@ end
 
 ##
 
-"""TODO docstring"""
+"""
+Process a Clifford + T circuit into a Pauli Product circuit by appropriately commuting
+all Clifford gates past the nonClifford-gates and absorbing them in the Pauli Product Measurements.
+Then replace all nonClifford Pauli Product Rotations with gadgets.
+"""
 function preprocess_circuit(circuit::Circuit)
     remove_pauliconditional(circuit)
     group_nonclifford(circuit)
@@ -93,7 +97,7 @@ function preprocess_circuit(circuit::Circuit)
     remove_post_measurement(circuit)
 end
 
-"""TODO docstring"""
+"""Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4."""
 function remove_pauliconditional(circuit::Circuit)
     len=length(circuit)
     for i in 1:len
@@ -119,7 +123,9 @@ function group_nonclifford(circuit::Circuit)
     end
 end
 
-"""TODO docstring"""
+"""Identifies and combines identical Pauli rotations:
+    For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
+    A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed."""
 function merge_ops(circuit::Circuit)
     traversal(circuit,merge_rotations, :left, 1, :end)
 end
