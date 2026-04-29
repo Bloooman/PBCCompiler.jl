@@ -5,8 +5,9 @@ struct PauliQubitMismatchError <: Exception
     msg::String
 end
 
+"""Function for checking if the pauli and qubits field denotes different number of qubits"""
 function validate_CircuitOp(op::CircuitOp.Type)
-    p=affectedpaulis(op)
+    p=_affectedpaulis(op)
     q=affectedqubits(op)
     name=variant_name(op)
     if length(p) != length(q)
@@ -22,6 +23,7 @@ function validate_CircuitOp(op::CircuitOp.Type)
     end
 end
 
+"""Check every CircuitOp in a circuit"""
 function validate_circuit(circuit::Circuit)
     for op in circuit
         validate_CircuitOp(op)
@@ -70,29 +72,39 @@ function find_nonclifford_indices(circuit::Circuit)
     return nonclifford_indices
 end
 
-
+"""
+Function that replace all non-Clifford circuit operations with BitConditional CircuitOps
+Each BitConditional CircuitOp contains a gadget(a set of four consecutive CircuitOps) for pi/8 rotation implementation:
+    Realize pi/8 rotation by consuming a |T ⟩ ancilla state
+    perform a joint measurement P ⊗ Z between data and ancilla,
+    then apply a conditional Clifford correction
+"""
 function gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magic_state::Int)
     op=circuit[index]
     num_bit=get_bit_number(circuit)
-    if isa_variant(op,CircuitOp.ExpEighPiPauli)
-        P=affectedpaulis(op)
-        Q=affectedqubits(op)
-        magic_state=[num_input_qubit+num_magic_state]
-        Pauli=tensor(P,P"Z")
-        Qubit=[Q;magic_state]
-        magic_bit_1=num_bit+2*num_magic_state-1
-        magic_bit_2=num_bit+2*num_magic_state
-        Measurement_1=CircuitOp.Measurement(Pauli,magic_bit_1,Qubit)
-        Measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
-        BitConditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
-        BitConditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
-        gadget=[Measurement_1, Measurement_2, BitConditional_1, BitConditional_2]
+            if isa_variant(op,CircuitOp.ExpEighPiPauli)
+                P=_affectedpaulis(op)
+                Q=affectedqubits(op)
+                magic_state=[num_input_qubit+num_magic_state]
+                Pauli=tensor(P,P"Z")
+                Qubit=[Q;magic_state]
+                magic_bit_1=num_bit+2*num_magic_state-1
+                magic_bit_2=num_bit+2*num_magic_state
+                Measurement_1=CircuitOp.Measurement(Pauli,magic_bit_1,Qubit)
+                Measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
+                BitConditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
+                BitConditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
+                gadget=[Measurement_1, Measurement_2, BitConditional_1, BitConditional_2]
         splice!(circuit, index, gadget)
     else
         nothing
-    end
+        end
 end
 
+"""
+s is the stabilized part of input_state defined by user in the form of a stabilzier group
+Function will expand the stabilizer group to cover the entire circuit width by adding Identities to each stabilizer
+"""
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)
     num_pauli_qubits = length(s)
