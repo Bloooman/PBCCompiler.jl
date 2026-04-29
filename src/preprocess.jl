@@ -5,7 +5,7 @@ struct PauliQubitMismatchError <: Exception
     msg::String
 end
 
-"""Function for checkign if the pauli and qubits field denotes different number of qubits"""
+"""Function for checking if the pauli and qubits field denotes different number of qubits"""
 function validate_CircuitOp(op::CircuitOp.Type)
     p=_affectedpaulis(op)
     q=affectedqubits(op)
@@ -72,7 +72,7 @@ end
 
 """
 Function that replace all non-Clifford circuit operations with BitConditional CircuitOps
-Each BitConditional CircuitOp contains a gadget(a set of four consequtive CircuitOps) for pi/8 rotation implementation:
+Each BitConditional CircuitOp contains a gadget(a set of four consecutive CircuitOps) for pi/8 rotation implementation:
     Realize pi/8 rotation by consuming a |T ⟩ ancilla state
     perform a joint measurement P ⊗ Z between data and ancilla,
     then apply a conditional Clifford correction
