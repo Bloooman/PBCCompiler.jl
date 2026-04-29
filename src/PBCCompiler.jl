@@ -89,6 +89,9 @@ all Clifford gates past the nonClifford-gates and absorbing them in the Pauli Pr
 Then replace all nonClifford Pauli Product Rotations with gadgets.
 """
 function preprocess_circuit(circuit::Circuit)
+    if isempty(circuit) || length(circuit) < 2
+        return circuit
+    end
     remove_pauliconditional(circuit)
     group_nonclifford(circuit)
     merge_ops(circuit)
