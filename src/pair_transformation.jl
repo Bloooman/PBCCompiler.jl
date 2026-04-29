@@ -1,5 +1,8 @@
     """
-    This file contains functions performing pair transformation between 2 Circuit Operations: Commutation Check, Conjugation
+    This file contains the main iteration structures and functions for the PBCCompiler.
+    It defines how to propagate Pauli Product Measurements (PPMs) through a quantum circuit
+    Provides functions to handle commute condition and anticommute condition
+    Provides functions to handle PBC List update and Check list update
     """
 
 """
@@ -283,5 +286,53 @@ function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the
         return nothing
     else
         return (conjugated_op,op1)
+    end
+end
+
+"""
+Helper functions to cancel out adjacent PPR pair
+"""
+function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
+    @match (op1,op2) begin
+        (ExpEighPiPauli(),ExpEighPiPauli()) => begin
+            (p1,p2)=_complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                if xor(p1.phase[1], p2.phase[1]) == 0x02
+                    return ExpHalfPiPauli(p1*p2,q)
+                elseif op1.pauli.phase == op2.pauli.phase
+                    return ExpQuatPiPauli(p1,q)
+                else
+                    return nothing
+                end
+            else return nothing
+            end
+        end
+        (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
+            (p1,p2)=_complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                if xor(p1.phase[1], p2.phase[1]) == 0x02
+                    return ExpHalfPiPauli(p1*p2,q)
+                elseif op1.pauli.phase == op2.pauli.phase
+                    return ExpHalfPiPauli(p1,q)
+                else
+                    return nothing
+                end
+            else return nothing
+            end
+        end
+        (ExpHalfPiPauli(),ExpHalfPiPauli()) => begin
+            (p1,p2)=_complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            q=[x for x in 1:qm]
+            if p1.xz == p2.xz
+                return ExpHalfPiPauli(p1*p2,q)
+            else return nothing
+            end
+        end
+        _ => nothing
     end
 end

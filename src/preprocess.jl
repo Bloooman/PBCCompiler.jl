@@ -7,7 +7,7 @@ end
 
 """Function for checkign if the pauli and qubits field denotes different number of qubits"""
 function validate_CircuitOp(op::CircuitOp.Type)
-    p=affectedpaulis(op)
+    p=_affectedpaulis(op)
     q=affectedqubits(op)
     name=variant_name(op)
     if length(p) != length(q)
@@ -87,7 +87,7 @@ function gadgetize(circuit::Circuit)
             op=circuit[index]
             if isa_variant(op,CircuitOp.ExpEighPiPauli)
                 num_magic_state+=1
-                P=affectedpaulis(op)
+                P=_affectedpaulis(op)
                 Q=affectedqubits(op)
                 magic_state=[num_input_qubit+num_magic_state]
                 Pauli=tensor(P,P"Z")
