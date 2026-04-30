@@ -69,3 +69,24 @@ Edge weights are labelled at edge midpoints.
 Returns a CairoMakie `Figure`.
 """
 function plot_interaction end
+
+"""
+    plot_weight_histogram(g::SimpleWeightedGraph; bins=nothing)
+
+Plot a histogram of edge weights from `g`, assuming integer edge weights.
+
+When `bins` is `nothing` (default), each distinct integer weight gets its own bar.
+When `bins` is an integer, weights are grouped into approximately that many bins
+with integer-aligned boundaries. Returns a `Makie.Figure`.
+"""
+function plot_weight_histogram end
+
+"""
+    plot_std_graph(g::SimpleWeightedGraph; colormap=Reverse(:RdBu), node_size=30)
+
+Plot the output of `weight_std_graph` as a network diagram using a circular layout.
+
+Nodes are labeled 1–n. Edge color encodes the edge weight (std dev) on a
+blue-to-red scale, with a colorbar on the right. Returns a `Makie.Figure`.
+"""
+function plot_std_graph end

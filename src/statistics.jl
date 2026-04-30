@@ -71,46 +71,6 @@ function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type
     return g
 end
 ##
-
-"""
-    plot_weight_histogram(g::SimpleWeightedGraph; bins=nothing)
-
-Plot a histogram of edge weights from `g`, assuming integer edge weights.
-
-When `bins` is `nothing` (default), each distinct integer weight gets its own bar.
-When `bins` is an integer, weights are grouped into approximately that many bins
-with integer-aligned boundaries. Returns a `Makie.Figure`.
-"""
-function plot_weight_histogram(g::SimpleWeightedGraph; bins::Union{Int,Nothing}=nothing)
-    ws = [e.weight for e in edges(g)]
-    lo = round(Int, minimum(ws))
-    hi = round(Int, maximum(ws))
-
-    if isnothing(bins)
-        bin_edges = (lo - 1 : hi) .+ 0.5   # half-integer edges, one bin per integer
-        midpoints = Float64.(lo:hi)
-        labels    = string.(lo:hi)
-    else
-        step      = max(1, ceil(Int, (hi - lo) / bins))
-        start     = (lo ÷ step) * step
-        stop      = ((hi - 1) ÷ step + 1) * step
-        bin_edges = Float64.(start:step:stop)
-        midpoints = [(bin_edges[i] + bin_edges[i+1]) / 2 for i in 1:length(bin_edges)-1]
-        labels    = ["$(Int(bin_edges[i]))–$(Int(bin_edges[i+1]))"
-                     for i in 1:length(bin_edges)-1]
-    end
-
-    rot = (isnothing(bins) && hi - lo <= 15) ? 0.0 : π/4
-
-    fig = Figure()
-    ax = Axis(fig[1, 1]; xlabel="Edge Weight", ylabel="Count",
-              title="Edge Weight Distribution",
-              xticks=(midpoints, labels),
-              xticklabelrotation=rot)
-    hist!(ax, ws; bins=bin_edges, color=:steelblue)
-    return fig
-end
-##
 """
     weight_std_graph(graphs::Vector{<:SimpleWeightedGraph})
 
