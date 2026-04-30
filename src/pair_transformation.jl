@@ -27,6 +27,7 @@ julia> PBCCompiler._affectedpaulis(op)  # returns [1, 3]`
 """
 function _affectedpaulis(op::CircuitOp.Type)
     pauli = @match op begin
+        CircuitOp.Pauli(pauli, qubits) => pauli
         CircuitOp.Measurement(pauli, bit, qubits) => pauli
         CircuitOp.ExpHalfPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => pauli
@@ -169,7 +170,7 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
 julia> CNOT = PBCCompiler.PauliConditional(P"Z", [1], P"X", [2]);
 
-julia> PBCCompiler.conjugation(CNOT, op1)
+julia> PBCCompiler.conjugate(CNOT, op1)
 (CircuitOp.ExpQuatPiPauli(pauli=+ XXY, qubits=[1, 2, 3]), CircuitOp.PauliConditional(control_pauli=+ Z, control_qubits=[1], target_pauli=+ X, target_qubits=[2]))
 ```
 """
