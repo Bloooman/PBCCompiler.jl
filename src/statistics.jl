@@ -1,8 +1,20 @@
+    """
+    This file contains functions for analyzing computed&compiled circuits
+    """
+
+##
 using Graphs, SimpleWeightedGraphs
 using QuantumClifford: xbit, zbit
 
+"""
+    get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots=1000)
+
+Get measurement result distribution of given input circuit and input state by running compute&compile function for desired number of shots
+
+Return calculated result distribution and raw result count
+"""
 function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots::Int=1000)
-    num_bits = get_circuit_width(input_circuit)
+    num_bits = _get_circuit_width(input_circuit)
     len = 2^num_bits
     distribution = zeros(Int, len)
     data = zeros(Int, num_shots)
@@ -21,6 +33,15 @@ function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_s
     return (distribution, data)
 end
 
+"""
+    get_graph(result::ComputerState, type=nothing)
+
+Extract qubit interaction graph from resulted ComputerState
+
+When type is nothing(default), plot interaction graph among all qubits using all Pauli Product Measurement
+When type is a MeasurementResultType, plot interaction graph using only MeasurementResult of given type
+When type is QuantumRes, plot interaction graph of magic qubits denoted in ComputerState only
+"""
 function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
     num_nodes=maximum(vcat(result.memory_state.pauli_qubits,result.memory_state.magic_qubits))
     g=SimpleWeightedGraph(Int64(num_nodes))
