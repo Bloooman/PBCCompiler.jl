@@ -38,7 +38,7 @@ const P = typeof(P"XYZ")
         qubit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform a (pi/2) Pauli rotation (defined by target_pauli) on the target qubits, conditional on the control qubits falling into the -1 eigenspace of control_pauli"""
     struct PauliConditional
         control_pauli::P
         control_qubits::Vector{Int}

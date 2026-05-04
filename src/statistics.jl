@@ -5,6 +5,7 @@
 ##
 using Graphs, SimpleWeightedGraphs
 using QuantumClifford: xbit, zbit
+using Statistics
 
 """
     get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots=1000)
