@@ -104,3 +104,33 @@ function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; type:
     end
     return result
 end
+##
+"""
+    get_hypergraph(result::ComputerState, type=nothing)
+
+Extract qubit interaction hypergraph from resulted ComputerState.
+
+When type is nothing(default), plot interaction hypergraph among all qubits using all Pauli Product Measurement
+When type is a MeasurementResultType, plot interaction hypergraph using only MeasurementResult of given type
+When type is QuantumRes, plot interaction hypergraph of magic qubits denoted in ComputerState only
+"""
+function get_hypergraph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
+    measurements = type === nothing ?
+        result.memory_state.measurement_results :
+        filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
+    num_nodes=maximum(vcat(result.memory_state.pauli_qubits,result.memory_state.magic_qubits))
+    paulis=[m.pauli for m in measurements]
+    len=length(paulis)
+    collected_edges = Vector{Vector{Int}}()
+    for p in paulis
+        push!(collected_edges, _qubit_coverage(p))
+    end
+    hyperedges=unique(collected_edges)
+    num_hyperedges=length(hyperedges)
+    h = Hypergraph{Int}(num_nodes, num_hyperedges)
+    w=countmap(collected_edges)
+    for i in 1:num_hyperedges
+        h[hyperedges[i],i].=w[hyperedges[i]]
+    end
+    return h
+end
