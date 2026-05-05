@@ -3,9 +3,10 @@
     """
 
 ##
-using Graphs, SimpleWeightedGraphs
+using Graphs, SimpleWeightedGraphs, SimpleHypergraphs
 using QuantumClifford: xbit, zbit
 using Statistics
+using StatsBase
 
 """
     get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots=1000)
@@ -133,4 +134,10 @@ function get_hypergraph(result::ComputerState, type::Union{MeasurementResultType
         h[hyperedges[i],i].=w[hyperedges[i]]
     end
     return h
+end
+
+function _qubit_coverage(p::PauliOperator)
+    bool_vec = [p[i] for i in 1:nqubits(p)]
+    idx=findall(x -> x !== (false,false), bool_vec)
+    return idx
 end
