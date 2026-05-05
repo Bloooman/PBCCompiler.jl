@@ -90,3 +90,22 @@ Nodes are labeled 1–n. Edge color encodes the edge weight (std dev) on a
 blue-to-red scale, with a colorbar on the right. Returns a `Makie.Figure`.
 """
 function plot_std_graph end
+##
+"""
+    circuitplot(circuit::Circuit) -> PyObject
+
+Render a Circuit as a Qiskit circuit diagram.
+
+# Arguments
+- `circuit`: sequence of `CircuitOp` operations to visualize
+
+# Returns
+A matplotlib `Figure` with the circuit diagram. Qubit count and
+classical bit count are inferred from the maximum indices in the circuit.
+"""
+function circuitplot_qiskit(circuit::Circuit)
+    throw(ArgumentError(
+        "plot_circuit requires PythonCall. " *
+        "Run `using PythonCall` before calling this function."
+    ))
+end

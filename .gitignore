@@ -8,3 +8,4 @@ scratch/
 .vscode
 *.png
 dev.jl
+.CondaPkg/

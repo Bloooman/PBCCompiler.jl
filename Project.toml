@@ -7,6 +7,7 @@ authors = ["Stefan Krastanov <stefan@krastanov.org>"]
 projects = ["benchmark", "docs"]
 
 [deps]
+CondaPkg = "992eb4ea-22a4-4c89-a5bb-47a3300528ab"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 Moshi = "2e0e35c7-a2e4-4343-998d-7ef72827ed2d"
@@ -19,11 +20,14 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [weakdeps]
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
 
 [extensions]
 PBCCompilerMakieExt = "Makie"
+PythonPlotExt = "PythonCall"
 
 [compat]
+CondaPkg = "0.2.34"
 Graphs = "1.14.0"
 JLD2 = "0.6.4"
 Makie = "0.24"
