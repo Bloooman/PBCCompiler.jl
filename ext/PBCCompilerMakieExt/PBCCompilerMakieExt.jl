@@ -6,7 +6,7 @@ using PBCCompiler: Circuit, CircuitOp, _affectedqubits
 using Graphs, SimpleWeightedGraphs
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_interaction, plot_weight_histogram, plot_std_graph
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_interaction, plot_weight_histogram, plot_std_graph, plot_partition
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -384,5 +384,49 @@ function plot_std_graph(g::SimpleWeightedGraph; colormap=Reverse(:RdBu), node_si
 
     return fig
 end
+##
+const _PARTITION_PALETTE = [:tomato, :steelblue, :seagreen, :gold,
+                             :mediumpurple, :darkorange, :deepskyblue]
+
+"""
+    plot_partition(g::SimpleWeightedGraph, part::Vector{Int32}) -> Figure
+
+Display a circular-layout plot of `g` with nodes colored by partition assignment.
+
+# Arguments
+- `g`: the graph that was partitioned
+- `part`: partition assignment vector as returned by `METIS_partition`
+
+# Returns
+A `CairoMakie.Figure` with the partition plot.
+"""
+function plot_partition(g::SimpleWeightedGraph, part::Vector{Int32})::Figure
+    num_partition = maximum(part)
+    n = nv(g)
+    θ = range(0, 2π, length=n+1)[1:n]
+    xs, ys = cos.(θ), sin.(θ)
+    node_colors = [_PARTITION_PALETTE[mod1(p, length(_PARTITION_PALETTE))] for p in part]
+
+    fig = Figure(size=(500, 500))
+    ax = Axis(fig[1, 1], aspect=DataAspect(), title="METIS partition (k=$num_partition)")
+    hidedecorations!(ax)
+    hidespines!(ax)
+
+    for e in edges(g)
+        u, v = src(e), dst(e)
+        lines!(ax, [xs[u], xs[v]], [ys[u], ys[v]], color=:gray70, linewidth=1)
+    end
+
+    scatter!(ax, xs, ys, color=node_colors, markersize=35,
+             strokewidth=1.5, strokecolor=:black)
+
+    for i in 1:n
+        text!(ax, xs[i], ys[i], text=string(i),
+              align=(:center, :center), fontsize=13, color=:white)
+    end
+
+    return fig
+end
+
 
 end # module

@@ -103,9 +103,18 @@ Render a Circuit as a Qiskit circuit diagram.
 A matplotlib `Figure` with the circuit diagram. Qubit count and
 classical bit count are inferred from the maximum indices in the circuit.
 """
-function circuitplot_qiskit(circuit::Circuit)
-    throw(ArgumentError(
-        "plot_circuit requires PythonCall. " *
-        "Run `using PythonCall` before calling this function."
-    ))
-end
+function circuitplot_qiskit end
+##
+"""
+    plot_partition(g::SimpleWeightedGraph, part::Vector{Int32}) -> Figure
+
+Display a circular-layout plot of `g` with nodes colored by partition assignment.
+
+# Arguments
+- `g`: the graph that was partitioned
+- `part`: partition assignment vector as returned by `METIS_partition`
+
+# Returns
+A `CairoMakie.Figure` with the partition plot.
+"""
+function plot_partition end

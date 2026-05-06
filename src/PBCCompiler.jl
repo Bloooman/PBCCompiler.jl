@@ -11,5 +11,6 @@ include("Random_Circuit.jl")
 include("joint_measurement_check.jl")
 include("logic.jl")
 include("statistics.jl")
+include("partition.jl")
 
 end # module PBCCompiler
