@@ -116,24 +116,30 @@ When type is a MeasurementResultType, plot interaction hypergraph using only Mea
 When type is QuantumRes, plot interaction hypergraph of magic qubits denoted in ComputerState only
 """
 function get_hypergraph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
-    measurements = type === nothing ?
-        result.memory_state.measurement_results :
-        filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
-    num_nodes=maximum(vcat(result.memory_state.pauli_qubits,result.memory_state.magic_qubits))
+        measurements = type === nothing ?
+    result.memory_state.measurement_results :
+    filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
     paulis=[m.pauli for m in measurements]
-    len=length(paulis)
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
         push!(collected_edges, _qubit_coverage(p))
     end
-    hyperedges=unique(collected_edges)
-    num_hyperedges=length(hyperedges)
-    h = Hypergraph{Int}(num_nodes, num_hyperedges)
     w=countmap(collected_edges)
-    for i in 1:num_hyperedges
-        h[hyperedges[i],i].=w[hyperedges[i]]
+    I = Int[]
+    J = Int[]
+    i=1
+    for row in keys(w)
+        append!(I,row)
+        col=fill(i,length(row))
+        append!(J,col)
+        i+=1
     end
-    return h
+    V = Int.(ones(length(I)))
+    edge_weights=collect(values(w))
+    A = sparse(I, J, V)
+    num_v, num_e = size(A)
+    h = KaHyPar.HyperGraph(A,ones(Int, num_v),edge_weights)
+    return (A, h)
 end
 
 function _qubit_coverage(p::PauliOperator)
