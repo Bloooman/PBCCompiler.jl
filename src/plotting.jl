@@ -118,3 +118,37 @@ Display a circular-layout plot of `g` with nodes colored by partition assignment
 A `CairoMakie.Figure` with the partition plot.
 """
 function plot_partition end
+##
+"""
+    plot_hypergraph(h::KaHyPar.HyperGraph) -> Figure
+
+Draw a hypergraph using the GraphBased representation.
+
+# Arguments
+- `h`: hypergraph to visualize
+
+# Returns
+A `CairoMakie.Figure` with real vertices drawn as labelled circles (steel blue,
+label "qi" in white) and hyperedge fake vertices as diamonds (orange) with their
+weight displayed beside them, connected by gray edges. A legend in the top-right
+corner distinguishes vertex and hyperedge node markers.
+"""
+function plot_hypergraph end
+
+"""
+    plot_hypergraph_partition(h::KaHyPar.HyperGraph, parts::Vector{Int64}) -> Figure
+
+Draw a partitioned hypergraph using the GraphBased representation.
+
+# Arguments
+- `h`: hypergraph to visualize
+- `parts`: 0-indexed partition IDs, one per real vertex (as returned by `KaHyPar.partition`)
+
+# Returns
+A `CairoMakie.Figure` with a dotted smooth blob drawn around each partition's
+real vertices (no fill). The blob shape is a periodic Catmull-Rom spline through
+the vertex positions offset outward. Vertices are labelled "qi" in white inside
+each circle; hyperedge weights are displayed beside each diamond. A legend in the
+top-right corner distinguishes vertex and hyperedge node markers.
+"""
+function plot_hypergraph_partition end

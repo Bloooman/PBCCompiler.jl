@@ -3,10 +3,10 @@ module PBCCompilerMakieExt
 using Makie
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, _affectedqubits
-using Graphs, SimpleWeightedGraphs
+using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_interaction, plot_weight_histogram, plot_std_graph, plot_partition
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_interaction, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -425,6 +425,359 @@ function plot_partition(g::SimpleWeightedGraph, part::Vector{Int32})::Figure
               align=(:center, :center), fontsize=13, color=:white)
     end
 
+    return fig
+end
+##
+# Fruchterman-Reingold spring layout; returns (n_nodes × 2) position matrix.
+function _spring_layout(n_nodes::Int, edges::Vector{Tuple{Int,Int}}; iterations::Int = 200)::Matrix{Float64}
+    pos = rand(n_nodes, 2) .* 2.0 .- 1.0
+    k = sqrt(4.0 / max(n_nodes, 1))
+    for iter in 1:iterations
+        t = 0.1 * (1.0 - iter / iterations)
+        disp = zeros(n_nodes, 2)
+        for i in 1:n_nodes
+            for j in 1:n_nodes
+                i == j && continue
+                delta = pos[i, :] .- pos[j, :]
+                d = max(norm(delta), 1e-6)
+                disp[i, :] .+= delta .* (k^2 / d^2)
+            end
+        end
+        for (u, v) in edges
+            delta = pos[u, :] .- pos[v, :]
+            d = max(norm(delta), 1e-6)
+            disp[u, :] .-= delta .* (d / k)
+            disp[v, :] .+= delta .* (d / k)
+        end
+        for i in 1:n_nodes
+            d = max(norm(disp[i, :]), 1e-6)
+            pos[i, :] .+= disp[i, :] .* (min(d, t) / d)
+        end
+    end
+    return pos
+end
+
+# Two-level partition-aware layout: partition centers on an outer circle, vertices
+# evenly arranged on a sub-circle within each partition, fake vertices at the
+# centroid of their connected real vertices.
+# Sub-circle radius scales as sqrt(n_vertices) so blob area ∝ partition size.
+function _partition_layout(n::Int, m::Int, edges::Vector{Tuple{Int,Int}}, parts::Vector{Int64})::Matrix{Float64}
+    unique_parts = sort(unique(parts))
+    k = length(unique_parts)
+    pos = zeros(n + m, 2)
+    # Per-partition sub-circle radius: area ∝ n_vertices
+    base_r = 0.3
+    radii = Dict(p => base_r * sqrt(count(==(p), parts)) for p in unique_parts)
+    r_max = maximum(values(radii))
+    # Outer radius: adjacent sub-circles stay separated by at least 0.3 units
+    R = k == 1 ? 0.0 : (r_max + 0.15) / sin(π / k) * 1.2
+    for (ci, p) in enumerate(unique_parts)
+        θ_c = 2π * (ci - 1) / k
+        cx, cy = R * cos(θ_c), R * sin(θ_c)
+        r = radii[p]
+        verts = findall(==(p), parts)
+        nv = length(verts)
+        for (j, v) in enumerate(verts)
+            θ = nv == 1 ? 0.0 : 2π * (j - 1) / nv
+            pos[v, 1] = cx + r * cos(θ)
+            pos[v, 2] = cy + r * sin(θ)
+        end
+    end
+    # fake vertices: centroid of their connected real vertices
+    for i in 1:m
+        fv = n + i
+        connected = [v for (u, v) in edges if u == fv]
+        if isempty(connected)
+            pos[fv, :] .= 0.0
+        else
+            pos[fv, 1] = sum(pos[v, 1] for v in connected) / length(connected)
+            pos[fv, 2] = sum(pos[v, 2] for v in connected) / length(connected)
+        end
+    end
+    _repel_fake!(pos, n)
+    return pos
+end
+
+# Iteratively push all nodes apart until no pair is closer than min_dist.
+function _repel_all!(pos::Matrix{Float64}; min_dist::Float64 = 0.2, iterations::Int = 80)
+    n = size(pos, 1)
+    for _ in 1:iterations
+        moved = false
+        for i in 1:n, j in (i+1):n
+            dx, dy = pos[i,1]-pos[j,1], pos[i,2]-pos[j,2]
+            d = sqrt(dx^2 + dy^2)
+            if d < min_dist && d > 1e-9
+                f = (min_dist - d) * 0.5 / d
+                pos[i,1] += dx*f;  pos[i,2] += dy*f
+                pos[j,1] -= dx*f;  pos[j,2] -= dy*f
+                moved = true
+            end
+        end
+        moved || break
+    end
+end
+
+# Like _repel_all! but only fake vertices (indices n_real+1:end) are allowed to move.
+function _repel_fake!(pos::Matrix{Float64}, n_real::Int; min_dist::Float64 = 0.2, iterations::Int = 100)
+    n = size(pos, 1)
+    for _ in 1:iterations
+        moved = false
+        for i in (n_real+1):n
+            for j in 1:n
+                i == j && continue
+                dx, dy = pos[i,1]-pos[j,1], pos[i,2]-pos[j,2]
+                d = sqrt(dx^2 + dy^2)
+                if d < min_dist && d > 1e-9
+                    f = (min_dist - d) / d
+                    pos[i,1] += dx*f;  pos[i,2] += dy*f
+                    moved = true
+                end
+            end
+        end
+        moved || break
+    end
+end
+
+# Unique curvature magnitudes per hyperedge (cycled); signs are optimised at draw time.
+const _HE_MAGS = [0.20, 0.32, 0.12, 0.28, 0.16, 0.36, 0.24, 0.08, 0.40, 0.18]
+
+# Standard open-segment intersection test.
+function _seg_cross(ax, ay, bx, by, cx, cy, dx, dy)
+    d1x, d1y = bx-ax, by-ay
+    d2x, d2y = dx-cx, dy-cy
+    den = d1x*d2y - d1y*d2x
+    abs(den) < 1e-12 && return false
+    t = ((cx-ax)*d2y - (cy-ay)*d2x) / den
+    u = ((cx-ax)*d1y - (cy-ay)*d1x) / den
+    return 0.0 < t < 1.0 && 0.0 < u < 1.0
+end
+
+# Count crossings between all inter-hyperedge Bézier pairs, each approximated as
+# two line segments (start→ctrl, ctrl→end).
+function _count_crossings(pos, he_edges, curves)
+    n   = 0
+    ids = sort(collect(keys(he_edges)))
+    for a in eachindex(ids), b in (a+1):lastindex(ids)
+        hi, hj = ids[a], ids[b]
+        ki, kj = curves[hi], curves[hj]
+        for (fvi, vi) in he_edges[hi], (fvj, vj) in he_edges[hj]
+            p0x,p0y = pos[vi, 1],pos[vi, 2];   p2x,p2y = pos[fvi,1],pos[fvi,2]
+            dx, dy  = p2x-p0x, p2y-p0y;        L  = sqrt(dx^2+dy^2);  L  < 1e-9 && continue
+            m1x = (p0x+p2x)/2 + ki*(-dy/L);    m1y = (p0y+p2y)/2 + ki*(dx/L)
+            q0x,q0y = pos[vj, 1],pos[vj, 2];   q2x,q2y = pos[fvj,1],pos[fvj,2]
+            ex, ey  = q2x-q0x, q2y-q0y;        Lj = sqrt(ex^2+ey^2); Lj < 1e-9 && continue
+            m2x = (q0x+q2x)/2 + kj*(-ey/Lj);  m2y = (q0y+q2y)/2 + kj*(ex/Lj)
+            n += (_seg_cross(p0x,p0y,m1x,m1y, q0x,q0y,m2x,m2y) ? 1 : 0) +
+                 (_seg_cross(p0x,p0y,m1x,m1y, m2x,m2y,q2x,q2y) ? 1 : 0) +
+                 (_seg_cross(m1x,m1y,p2x,p2y, q0x,q0y,m2x,m2y) ? 1 : 0) +
+                 (_seg_cross(m1x,m1y,p2x,p2y, m2x,m2y,q2x,q2y) ? 1 : 0)
+        end
+    end
+    return n
+end
+
+# Greedy sign-flip optimiser: for each hyperedge flip its curvature sign if doing so
+# reduces the total inter-hyperedge Bézier crossing count.
+function _optimize_curvature_signs(pos::Matrix{Float64},
+                                   edges::Vector{Tuple{Int,Int}}, n_real::Int)
+    he_edges = Dict{Int, Vector{Tuple{Int,Int}}}()
+    for (fv, v) in edges
+        push!(get!(he_edges, fv - n_real, Tuple{Int,Int}[]), (fv, v))
+    end
+    isempty(he_edges) && return he_edges  # empty → return empty Dict
+    ids    = sort(collect(keys(he_edges)))
+    curves = Dict(he => _HE_MAGS[mod1(he, length(_HE_MAGS))] for he in ids)
+    for _ in 1:20
+        improved = false
+        for he in ids
+            curr = _count_crossings(pos, he_edges, curves)
+            curves[he] *= -1
+            _count_crossings(pos, he_edges, curves) >= curr ? (curves[he] *= -1) : (improved = true)
+        end
+        improved || break
+    end
+    return curves
+end
+
+# Draw each edge as a quadratic Bézier with a curvature whose sign is chosen to
+# minimise crossings between edges from different hyperedges.
+function _draw_edges!(ax::Axis, pos::Matrix{Float64},
+                      edges::Vector{Tuple{Int,Int}}, n_real::Int; n_pts::Int = 40)
+    curves = _optimize_curvature_signs(pos, edges, n_real)
+    ts = range(0.0, 1.0, n_pts)
+    for (fv, v) in edges
+        he  = fv - n_real
+        k   = get(curves, he, 0.20)
+        p0x, p0y = pos[v,  1], pos[v,  2]
+        p2x, p2y = pos[fv, 1], pos[fv, 2]
+        dx, dy = p2x - p0x, p2y - p0y
+        L = sqrt(dx^2 + dy^2);  L < 1e-9 && continue
+        cx = (p0x + p2x) / 2 + k * (-dy / L)
+        cy = (p0y + p2y) / 2 + k * ( dx / L)
+        xs = @. (1-ts)^2 * p0x + 2ts*(1-ts)*cx + ts^2*p2x
+        ys = @. (1-ts)^2 * p0y + 2ts*(1-ts)*cy + ts^2*p2y
+        lines!(ax, xs, ys; color = :gray70, linewidth = 1)
+    end
+end
+
+# Periodic Catmull-Rom spline through n control points (n×2 matrix).
+# Returns a closed Vector{Point2f}.
+function _catmull_rom(P::Matrix{Float64}; steps::Int = 30)::Vector{Point2f}
+    n = size(P, 1)
+    pts = Point2f[]
+    for i in 1:n
+        p0 = P[mod1(i-1, n), :];  p1 = P[mod1(i,   n), :]
+        p2 = P[mod1(i+1, n), :];  p3 = P[mod1(i+2, n), :]
+        for s in 0:(steps-1)
+            t = s / steps;  t2 = t^2;  t3 = t^3
+            push!(pts, Point2f(
+                0.5*((2p1[1]) + (-p0[1]+p2[1])*t + (2p0[1]-5p1[1]+4p2[1]-p3[1])*t2 + (-p0[1]+3p1[1]-3p2[1]+p3[1])*t3),
+                0.5*((2p1[2]) + (-p0[2]+p2[2])*t + (2p0[2]-5p1[2]+4p2[2]-p3[2])*t2 + (-p0[2]+3p1[2]-3p2[2]+p3[2])*t3)
+            ))
+        end
+    end
+    push!(pts, pts[1])
+    return pts
+end
+
+# Smooth closed blob enclosing vertex positions vpos, offset outward by pad.
+# Falls back to a circle for fewer than 3 vertices.
+function _blob_curve(vpos::Matrix{Float64}; pad::Float64 = 0.12)::Vector{Point2f}
+    nv = size(vpos, 1)
+    cx = sum(vpos[:, 1]) / nv
+    cy = sum(vpos[:, 2]) / nv
+    ctrl = Matrix{Float64}(undef, nv, 2)
+    for i in 1:nv
+        dx, dy = vpos[i,1] - cx, vpos[i,2] - cy
+        d = sqrt(dx^2 + dy^2)
+        scale = d < 1e-9 ? 1.0 : (d + pad) / d
+        ctrl[i, 1] = cx + dx * scale
+        ctrl[i, 2] = cy + dy * scale
+    end
+    perm = sortperm([atan(ctrl[i,2] - cy, ctrl[i,1] - cx) for i in 1:nv])
+    ctrl = ctrl[perm, :]
+    if nv < 3
+        rad = maximum(sqrt((vpos[i,1]-cx)^2 + (vpos[i,2]-cy)^2) for i in 1:nv) + pad
+        return [Point2f(cx + rad*cos(θ), cy + rad*sin(θ)) for θ in range(0, 2π, 121)]
+    end
+    return _catmull_rom(ctrl)
+end
+
+"""
+    plot_hypergraph(h::KaHyPar.HyperGraph) -> Figure
+
+Draw a hypergraph using the GraphBased representation.
+
+# Arguments
+- `h`: hypergraph to visualize
+
+# Returns
+A `CairoMakie.Figure` with real vertices drawn as labelled circles (steel blue,
+label "qi" in white) and hyperedge fake vertices as diamonds (orange) with their
+weight displayed beside them, connected by gray edges. A legend in the top-right
+corner distinguishes vertex and hyperedge node markers.
+"""
+function plot_hypergraph(h::KaHyPar.HyperGraph)::Figure
+    n = Int(h.n_vertices)
+    m = length(h.edge_indices) - 1
+    edges = Tuple{Int,Int}[]
+    for i in 1:m
+        fv = n + i
+        start_idx = Int(h.edge_indices[i]) + 1
+        end_idx   = Int(h.edge_indices[i + 1])
+        for vid_idx in start_idx:end_idx
+            v = Int(h.hyperedges[vid_idx]) + 1
+            push!(edges, (fv, v))
+        end
+    end
+    pos = _spring_layout(n + m, edges)
+    _repel_all!(pos)
+    fig = Figure(size = (800, 600))
+    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph (GraphBased)")
+    hidedecorations!(ax)
+    hidespines!(ax)
+    _draw_edges!(ax, pos, edges, n)
+    scatter!(ax, pos[1:n, 1], pos[1:n, 2];
+             marker = :circle, markersize = 30,
+             color = :steelblue, strokecolor = :white, strokewidth = 1)
+    n > 0 && text!(ax, [Point2f(pos[i, 1], pos[i, 2]) for i in 1:n];
+                   text = ["q$i" for i in 1:n], fontsize = 10,
+                   color = :white, align = (:center, :center))
+    m > 0 && scatter!(ax, pos[n+1:n+m, 1], pos[n+1:n+m, 2];
+             marker = :diamond, markersize = 14,
+             color = :darkorange, strokecolor = :white, strokewidth = 1)
+    m > 0 && text!(ax, [Point2f(pos[n+i, 1], pos[n+i, 2]) for i in 1:m];
+                   text = ["$(Int(h.e_weights[i]))" for i in 1:m], fontsize = 11,
+                   color = :darkorange, align = (:left, :bottom))
+    Legend(fig[1, 1],
+           [MarkerElement(marker = :circle,  color = :steelblue,  strokecolor = :white, strokewidth = 1, markersize = 18),
+            MarkerElement(marker = :diamond, color = :darkorange, strokecolor = :white, strokewidth = 1, markersize = 14)],
+           ["Vertex", "Hyperedge"];
+           tellheight = false, tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+    return fig
+end
+
+const _PART_PALETTE = [:steelblue, :firebrick, :seagreen, :darkorange,
+                       :mediumpurple, :darkcyan, :deeppink, :olive]
+
+"""
+    plot_hypergraph_partition(h::KaHyPar.HyperGraph, parts::Vector{Int64}) -> Figure
+
+Draw a partitioned hypergraph using the GraphBased representation.
+
+# Arguments
+- `h`: hypergraph to visualize
+- `parts`: 0-indexed partition IDs, one per real vertex (as returned by `KaHyPar.partition`)
+
+# Returns
+A `CairoMakie.Figure` with a dotted smooth blob drawn around each partition's
+real vertices (no fill). The blob shape is a periodic Catmull-Rom spline through
+the vertex positions offset outward. Vertices are labelled "qi" in white inside
+each circle; hyperedge weights are displayed beside each diamond. A legend in the
+top-right corner distinguishes vertex and hyperedge node markers.
+"""
+function plot_hypergraph_partition(h::KaHyPar.HyperGraph, parts::Vector{Int64})::Figure
+    n = Int(h.n_vertices)
+    m = length(h.edge_indices) - 1
+    edges = Tuple{Int,Int}[]
+    for i in 1:m
+        fv = n + i
+        start_idx = Int(h.edge_indices[i]) + 1
+        end_idx   = Int(h.edge_indices[i + 1])
+        for vid_idx in start_idx:end_idx
+            v = Int(h.hyperedges[vid_idx]) + 1
+            push!(edges, (fv, v))
+        end
+    end
+    pos = _partition_layout(n, m, edges, parts)
+    fig = Figure(size = (800, 600))
+    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph Partition (GraphBased)")
+    hidedecorations!(ax)
+    hidespines!(ax)
+    for (ci, p) in enumerate(sort(unique(parts)))
+        color = _PART_PALETTE[mod1(ci, length(_PART_PALETTE))]
+        verts = findall(==(p), parts)
+        blob  = _blob_curve(pos[verts, :]; pad = 0.1)
+        lines!(ax, blob; color = color, linewidth = 2, linestyle = :dot)
+    end
+    _draw_edges!(ax, pos, edges, n)
+    scatter!(ax, pos[1:n, 1], pos[1:n, 2];
+             marker = :circle, markersize = 30,
+             color = :steelblue, strokecolor = :white, strokewidth = 1)
+    n > 0 && text!(ax, [Point2f(pos[i, 1], pos[i, 2]) for i in 1:n];
+                   text = ["q$i" for i in 1:n], fontsize = 10,
+                   color = :white, align = (:center, :center))
+    m > 0 && scatter!(ax, pos[n+1:n+m, 1], pos[n+1:n+m, 2];
+             marker = :diamond, markersize = 14,
+             color = :darkorange, strokecolor = :white, strokewidth = 1)
+    m > 0 && text!(ax, [Point2f(pos[n+i, 1], pos[n+i, 2]) for i in 1:m];
+                   text = ["$(Int(h.e_weights[i]))" for i in 1:m], fontsize = 11,
+                   color = :darkorange, align = (:left, :bottom))
+    Legend(fig[1, 1],
+           [MarkerElement(marker = :circle,  color = :steelblue,  strokecolor = :white, strokewidth = 1, markersize = 18),
+            MarkerElement(marker = :diamond, color = :darkorange, strokecolor = :white, strokewidth = 1, markersize = 14)],
+           ["Vertex", "Hyperedge"];
+           tellheight = false, tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
     return fig
 end
 

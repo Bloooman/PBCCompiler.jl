@@ -3,7 +3,7 @@
     """
 
 ##
-using Graphs, SimpleWeightedGraphs, SimpleHypergraphs
+using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using QuantumClifford: xbit, zbit
 using Statistics
 using StatsBase
