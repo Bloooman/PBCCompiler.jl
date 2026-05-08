@@ -147,3 +147,50 @@ function _qubit_coverage(p::PauliOperator)
     idx=findall(x -> x !== (false,false), bool_vec)
     return idx
 end
+
+##
+"""
+    edgeweight_variant_hypergraph(hypergraphs::Vector{KaHyPar.HyperGraph}) -> KaHyPar.HyperGraph
+
+Merge all hyperedges from `hypergraphs` into a single weighted hypergraph.
+
+Hyperedges are identified by their vertex set (order-independent). An edge
+that appears in every input hypergraph receives weight `+1`; an edge absent
+from at least one hypergraph receives weight `-1`.
+
+# Arguments
+- `hypergraphs`: non-empty vector of hypergraphs sharing the same vertex count
+
+# Returns
+A `KaHyPar.HyperGraph` over the same vertex set containing the union of all
+unique hyperedges, with `±1` edge weights as described above.
+"""
+function variant_hypergraph(input_circuit::Circuit, input_state::Stabilizer; type::Union{MeasurementResultType.Type,Nothing}=nothing, num_shots::Int=1000)::KaHyPar.HyperGraph
+    hypergraphs =  Vector{KaHyPar.HyperGraph}(undef, num_shots)
+    i=1
+    while i<num_shots+1
+        circuit = copy(input_circuit)
+        result_i=run(circuit, input_state)
+        hypergraphs[i]=get_hypergraph(result_i, type)[2]
+        i+=1
+    end
+    n_vertices = Int(hypergraphs[1].n_vertices)
+
+    # Build sparse incidence matrix (n_vertices × n_unique_edges)
+    unique_edges = collect(keys(edge_count))
+    n_out_edges = length(unique_edges)
+    I_vals = Int[]
+    J_vals = Int[]
+    for (j, verts) in enumerate(unique_edges)
+        for v in verts
+            push!(I_vals, v + 1)  # 0-based vertex index → 1-based row
+            push!(J_vals, j)
+        end
+    end
+    A = sparse(I_vals, J_vals, ones(Int, length(I_vals)), n_vertices, n_out_edges)
+
+    vertex_weights = ones(Int, n_vertices)
+    edge_weights = [edge_count[e] == N ? 1 : -1 for e in unique_edges]
+
+    return KaHyPar.HyperGraph(A, vertex_weights, edge_weights)
+end

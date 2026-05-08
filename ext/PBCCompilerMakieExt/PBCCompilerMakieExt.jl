@@ -6,7 +6,7 @@ using PBCCompiler: Circuit, CircuitOp, _affectedqubits
 using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_interaction, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_graph, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -255,7 +255,7 @@ function plot_histogram(data)
 end
 
 """
-    plot_interaction(weights::AbstractMatrix{<:Real}) -> Figure
+    plot_graph(weights::AbstractMatrix{<:Real}) -> Figure
 
 Plot the interaction graph G(V,E) from an adjacency matrix.
 
@@ -266,7 +266,7 @@ Edge weights are labelled at edge midpoints.
 
 Returns a CairoMakie `Figure`.
 """
-function plot_interaction(weights::AbstractMatrix{<:Real})
+function plot_graph(weights::AbstractMatrix{<:Real})
     n = size(weights, 1)
 
     fig = Figure(size=(600, 600))
@@ -602,12 +602,14 @@ end
 # Draw each edge as a quadratic Bézier with a curvature whose sign is chosen to
 # minimise crossings between edges from different hyperedges.
 function _draw_edges!(ax::Axis, pos::Matrix{Float64},
-                      edges::Vector{Tuple{Int,Int}}, n_real::Int; n_pts::Int = 40)
+                      edges::Vector{Tuple{Int,Int}}, n_real::Int;
+                      n_pts::Int = 40, he_colors::Dict{Int,Any} = Dict{Int,Any}())
     curves = _optimize_curvature_signs(pos, edges, n_real)
     ts = range(0.0, 1.0, n_pts)
     for (fv, v) in edges
         he  = fv - n_real
         k   = get(curves, he, 0.20)
+        col = get(he_colors, he, :gray70)
         p0x, p0y = pos[v,  1], pos[v,  2]
         p2x, p2y = pos[fv, 1], pos[fv, 2]
         dx, dy = p2x - p0x, p2y - p0y
@@ -616,7 +618,7 @@ function _draw_edges!(ax::Axis, pos::Matrix{Float64},
         cy = (p0y + p2y) / 2 + k * ( dx / L)
         xs = @. (1-ts)^2 * p0x + 2ts*(1-ts)*cx + ts^2*p2x
         ys = @. (1-ts)^2 * p0y + 2ts*(1-ts)*cy + ts^2*p2y
-        lines!(ax, xs, ys; color = :gray70, linewidth = 1)
+        lines!(ax, xs, ys; color = col, linewidth = 1)
     end
 end
 
@@ -692,11 +694,20 @@ function plot_hypergraph(h::KaHyPar.HyperGraph)::Figure
     end
     pos = _spring_layout(n + m, edges)
     _repel_all!(pos)
+
+    universal_color = :darkorange
+    variant_color   = :crimson
+    univ_edge_col   = :gray60
+    var_edge_col    = :salmon
+
+    node_colors = [Int(h.e_weights[i]) >= 0 ? universal_color : variant_color for i in 1:m]
+    he_colors   = Dict{Int,Any}(i => (Int(h.e_weights[i]) >= 0 ? univ_edge_col : var_edge_col) for i in 1:m)
+
     fig = Figure(size = (800, 600))
-    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph (GraphBased)")
+    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph")
     hidedecorations!(ax)
     hidespines!(ax)
-    _draw_edges!(ax, pos, edges, n)
+    _draw_edges!(ax, pos, edges, n; he_colors)
     scatter!(ax, pos[1:n, 1], pos[1:n, 2];
              marker = :circle, markersize = 30,
              color = :steelblue, strokecolor = :white, strokewidth = 1)
@@ -705,14 +716,15 @@ function plot_hypergraph(h::KaHyPar.HyperGraph)::Figure
                    color = :white, align = (:center, :center))
     m > 0 && scatter!(ax, pos[n+1:n+m, 1], pos[n+1:n+m, 2];
              marker = :diamond, markersize = 14,
-             color = :darkorange, strokecolor = :white, strokewidth = 1)
+             color = node_colors, strokecolor = :white, strokewidth = 1)
     m > 0 && text!(ax, [Point2f(pos[n+i, 1], pos[n+i, 2]) for i in 1:m];
                    text = ["$(Int(h.e_weights[i]))" for i in 1:m], fontsize = 11,
-                   color = :darkorange, align = (:left, :bottom))
+                   color = node_colors, align = (:left, :bottom))
     Legend(fig[1, 1],
-           [MarkerElement(marker = :circle,  color = :steelblue,  strokecolor = :white, strokewidth = 1, markersize = 18),
-            MarkerElement(marker = :diamond, color = :darkorange, strokecolor = :white, strokewidth = 1, markersize = 14)],
-           ["Vertex", "Hyperedge"];
+           [MarkerElement(marker = :circle,  color = :steelblue,      strokecolor = :white, strokewidth = 1, markersize = 18),
+            MarkerElement(marker = :diamond, color = universal_color,  strokecolor = :white, strokewidth = 1, markersize = 14),
+            MarkerElement(marker = :diamond, color = variant_color,    strokecolor = :white, strokewidth = 1, markersize = 14)],
+           ["Vertex", "Hyperedge (universal)", "Hyperedge (variant)"];
            tellheight = false, tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
     return fig
 end
@@ -751,7 +763,7 @@ function plot_hypergraph_partition(h::KaHyPar.HyperGraph, parts::Vector{Int64}):
     end
     pos = _partition_layout(n, m, edges, parts)
     fig = Figure(size = (800, 600))
-    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph Partition (GraphBased)")
+    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph Partition (k=$(maximum(parts)+1))")
     hidedecorations!(ax)
     hidespines!(ax)
     for (ci, p) in enumerate(sort(unique(parts)))

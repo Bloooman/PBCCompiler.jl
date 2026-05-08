@@ -68,7 +68,7 @@ Edge weights are labelled at edge midpoints.
 
 Returns a CairoMakie `Figure`.
 """
-function plot_interaction end
+function plot_graph end
 
 """
     plot_weight_histogram(g::SimpleWeightedGraph; bins=nothing)
