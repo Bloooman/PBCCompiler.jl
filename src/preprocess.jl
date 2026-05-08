@@ -50,7 +50,7 @@ end
 
 function _get_bit_number(circuit::Circuit)
     num_bit=0
-    for i in _find_measurement_indices(circuit)
+    for i in find_variant_indices(circuit,Measurement)
         bits = @match circuit[i] begin
             CircuitOp.Measurement(pauli, bit, qubits) => bit
             _ => nothing
@@ -60,26 +60,8 @@ function _get_bit_number(circuit::Circuit)
     return num_bit
 end
 
-function _find_measurement_indices(circuit::Circuit)
-    measurement_indices = []
-    for (index, op) in enumerate(circuit)
-        if isa_variant(op,CircuitOp.Measurement)
-            push!(measurement_indices, index)
-        else
-            nothing
-        end
-    end
-    return measurement_indices
-end
-
-function _find_nonclifford_indices(circuit::Circuit)
-    nonclifford_indices = []
-    for (index, op) in enumerate(circuit)
-        if isa_variant(op, CircuitOp.ExpEighPiPauli)
-            push!(nonclifford_indices, index)
-        end
-    end
-    return nonclifford_indices
+function find_variant_indices(vec, ::Type{T}) where T
+    findall(x -> isa_variant(x, T), vec)
 end
 
 """
@@ -131,8 +113,8 @@ end
 ##
 """Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4."""
 function _remove_pauliconditional(circuit::Circuit)
-    len=length(circuit)
-    for i in 1:len
+    indices=find_variant_indices(circuit,PauliConditional)
+    for i in reverse(indices)
         op=circuit[i]
         @match op begin
             CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
@@ -148,8 +130,8 @@ end
 
 """TODO docstring"""
 function _group_nonclifford(circuit::Circuit)
-    if _find_nonclifford_indices(circuit) != []
-        for index in _find_nonclifford_indices(circuit)
+    if find_variant_indices(circuit,ExpEighPiPauli) != []
+        for index in find_variant_indices(circuit,ExpEighPiPauli)
             circuit=traversal(circuit, conjugate, :left, 1, index-1)
         end
     end
@@ -165,7 +147,7 @@ end
 """TODO docstring"""
 function _remove_clifford(circuit::Circuit)
     _validate_circuit(circuit)
-    for index in _find_measurement_indices(circuit)
+    for index in find_variant_indices(circuit,Measurement)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     return circuit
@@ -173,19 +155,18 @@ end
 
 """TODO docstring"""
 function _remove_nonclifford(circuit::Circuit)
-    num_non_clifford=length(_find_nonclifford_indices(circuit))
+    indices=find_variant_indices(circuit,ExpEighPiPauli)
     num_input_qubit=_get_circuit_width(circuit)
     num_magic_state=0
-    for i in 1:num_non_clifford
-        index=_find_nonclifford_indices(circuit)[1]
+    for i in reverse(indices)
         num_magic_state+=1
-        _gadgetize(circuit, index, num_input_qubit, num_magic_state)
+        _gadgetize(circuit, i, num_input_qubit, num_magic_state)
     end
 end
 
 """TODO docstring"""
 function _remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
-    index=maximum(_find_measurement_indices(circuit))
+    index=maximum(find_variant_indices(circuit,Measurement))
     resize!(circuit, index)
 end

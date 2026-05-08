@@ -47,7 +47,7 @@ function _do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRunti
     MS=compstate.memory_state
     Dummy=compstate.dummy
     @debug "Now working with $i th measurement" _group=:api
-    Meas_List = _find_measurement_indices(circuit)
+    Meas_List = find_variant_indices(circuit,Measurement)
     Meas_i=circuit[Meas_List[i]]
     bit_index=Meas_i.bit
     CheckList=MS.StabilizerGroup
