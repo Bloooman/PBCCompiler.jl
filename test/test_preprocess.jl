@@ -34,8 +34,8 @@ end
 
     @test circuit[1] == Measurement(P"XZZ", 3, [1, 2, 3])
     @test circuit[2] == Measurement(P"X", 4, [3])
-    @test circuit[3] == BitConditional((ExpQuatPiPauli(P"XZ", [1, 2, 3])), 3)
-    @test circuit[4] == BitConditional((ExpHalfPiPauli(P"XZ", [1, 2, 3])), 4)
+    @test circuit[3] == BitConditional((ExpQuatPiPauli(P"XZ", [1, 2])), 3)
+    @test circuit[4] == BitConditional((ExpHalfPiPauli(P"XZ", [1, 2])), 4)
     @test circuit[5] == Measurement(P"X_", 1, [1, 2])
     @test circuit[6] == Measurement(P"XZ", 2, [1, 2])
 end

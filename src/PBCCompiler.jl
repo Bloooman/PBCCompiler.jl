@@ -92,24 +92,24 @@ function preprocess_circuit(circuit::Circuit)
     if isempty(circuit) || length(circuit) < 2
         return circuit
     end
-    remove_pauliconditional(circuit)
-    group_nonclifford(circuit)
-    merge_ops(circuit)
-    remove_clifford(circuit)
-    remove_nonclifford(circuit)
-    remove_post_measurement(circuit)
+    _remove_pauliconditional(circuit)
+    _group_nonclifford(circuit)
+    _merge_ops(circuit)
+    _remove_clifford(circuit)
+    _remove_nonclifford(circuit)
+    _remove_post_measurement(circuit)
 end
 
 """Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4."""
-function remove_pauliconditional(circuit::Circuit)
-    len=length(circuit)
-    for i in 1:len
+function _remove_pauliconditional(circuit::Circuit)
+    indices=_find_variant_indices(circuit,PauliConditional)
+    for i in reverse(indices)
         op=circuit[i]
         @match op begin
-            PauliConditional(cp, cq, tp, tq) => begin
-                op_1=ExpQuatPiPauli(-cp, cq)
-                op_2=ExpQuatPiPauli(-tp, tq)
-                op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+            CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
+                op_1=CircuitOp.ExpQuatPiPauli(-cp, cq)
+                op_2=CircuitOp.ExpQuatPiPauli(-tp, tq)
+                op_3=CircuitOp.ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
                 splice!(circuit, i, (op_3, op_2, op_1))
             end
             _ => nothing
@@ -118,9 +118,9 @@ function remove_pauliconditional(circuit::Circuit)
 end
 
 """TODO docstring"""
-function group_nonclifford(circuit::Circuit)
-    if find_nonclifford_indices(circuit) != []
-        for index in find_nonclifford_indices(circuit)
+function _group_nonclifford(circuit::Circuit)
+    if _find_variant_indices(circuit,ExpEighPiPauli) != []
+        for index in _find_variant_indices(circuit,ExpEighPiPauli)
             circuit=traversal(circuit, conjugate, :left, 1, index-1)
         end
     end
@@ -129,33 +129,37 @@ end
 """Identifies and combines identical Pauli rotations:
     For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
     A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed."""
-function merge_ops(circuit::Circuit)
-    traversal(circuit,merge_rotations, :left, 1, :end)
+function _merge_ops(circuit::Circuit)
+    traversal(circuit,_merge_rotations, :left, 1, :end)
 end
 
 """TODO docstring"""
-function remove_clifford(circuit::Circuit)
-    validate_circuit(circuit)
-    for index in find_measurement_indices(circuit)
+function _remove_clifford(circuit::Circuit)
+    _validate_circuit(circuit)
+    for index in _find_variant_indices(circuit,Measurement)
         circuit=traversal(circuit, conjugate, :left, 1, index-1)
     end
     return circuit
 end
 
 """TODO docstring"""
-function remove_nonclifford(circuit::Circuit)
-    num_non_clifford=length(find_nonclifford_indices(circuit))
-    for i in 1:num_non_clifford
-        gadgetize(circuit)
+function _remove_nonclifford(circuit::Circuit)
+    indices=_find_variant_indices(circuit,ExpEighPiPauli)
+    num_input_qubit=_get_circuit_width(circuit)
+    num_magic_state=0
+    for i in reverse(indices)
+        num_magic_state+=1
+        _gadgetize(circuit, i, num_input_qubit, num_magic_state)
     end
 end
 
 """TODO docstring"""
-function remove_post_measurement(circuit::Circuit)
+function _remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
-    index=maximum(find_measurement_indices(circuit))
+    index=maximum(_find_variant_indices(circuit,Measurement))
     resize!(circuit, index)
 end
+
 
 ##
 
