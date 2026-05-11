@@ -46,7 +46,7 @@ When type is QuantumRes, plot interaction graph of magic qubits denoted in Compu
 """
 function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
     num_nodes=maximum(vcat(result.memory_state.pauli_qubits,result.memory_state.magic_qubits))
-    g=SimpleWeightedGraph(Int64(num_nodes))
+    g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
     measurements = type === nothing ?
         result.memory_state.measurement_results :
         filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
@@ -71,6 +71,51 @@ function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type
         end
     end
     return g
+end
+
+"""
+    variant_graph(graphs::Vector{<:SimpleWeightedGraph}) -> SimpleWeightedGraph
+
+Merge all edges from `graphs` into a single weighted graph.
+
+Hyperedges are identified by their vertex set (order-independent). An edge
+that appears in every input graph receives weight `+1`; an edge absent
+from at least one graph receives weight `-1`.
+
+# Arguments
+- `graphs`: non-empty vector of graphs sharing the same vertex count
+
+# Returns
+A `SimpleWeightedGraph` over the same vertex set containing the union of all
+unique edges, with `±1` edge weights as described above.
+"""
+function variant_graph(graphs::Vector{<:SimpleWeightedGraph})::SimpleWeightedGraph
+    N = length(graphs)
+    N == 0 && throw(ArgumentError("Input vector must be non-empty"))
+
+    n = nv(graphs[1])
+
+    edge_count = Dict{Tuple{Int,Int}, Int}()
+    for g in graphs
+        for e in edges(g)
+            key = minmax(Int(src(e)), Int(dst(e)))
+            edge_count[key] = get(edge_count, key, 0) + 1
+        end
+    end
+
+    I_vals = Int[]
+    J_vals = Int[]
+    V_vals = Int[]
+    for ((u, v), count) in edge_count
+        w = count == N ? 1 : -1
+        push!(I_vals, u, v)
+        push!(J_vals, v, u)
+        push!(V_vals, w, w)
+    end
+
+    s = isempty(I_vals) ? spzeros(Int, n, n) :
+                          sparse(I_vals, J_vals, V_vals, n, n)
+    return SimpleWeightedGraph(s)
 end
 ##
 """
@@ -165,16 +210,21 @@ from at least one hypergraph receives weight `-1`.
 A `KaHyPar.HyperGraph` over the same vertex set containing the union of all
 unique hyperedges, with `±1` edge weights as described above.
 """
-function variant_hypergraph(input_circuit::Circuit, input_state::Stabilizer; type::Union{MeasurementResultType.Type,Nothing}=nothing, num_shots::Int=1000)::KaHyPar.HyperGraph
-    hypergraphs =  Vector{KaHyPar.HyperGraph}(undef, num_shots)
-    i=1
-    while i<num_shots+1
-        circuit = copy(input_circuit)
-        result_i=run(circuit, input_state)
-        hypergraphs[i]=get_hypergraph(result_i, type)[2]
-        i+=1
-    end
+function variant_hypergraph(hypergraphs::Vector{KaHyPar.HyperGraph})::KaHyPar.HyperGraph
+    N = length(hypergraphs)
+    N == 0 && throw(ArgumentError("Input vector must be non-empty"))
+
     n_vertices = Int(hypergraphs[1].n_vertices)
+
+    # Count occurrences of each unique hyperedge (normalized to sorted 0-based vertex vector)
+    edge_count = Dict{Vector{Int}, Int}()
+    for hg in hypergraphs
+        n_edges = length(hg.edge_indices) - 1
+        for j in 1:n_edges
+            verts = sort(Int.(hg.hyperedges[hg.edge_indices[j]+1 : hg.edge_indices[j+1]]))
+            edge_count[verts] = get(edge_count, verts, 0) + 1
+        end
+    end
 
     # Build sparse incidence matrix (n_vertices × n_unique_edges)
     unique_edges = collect(keys(edge_count))
