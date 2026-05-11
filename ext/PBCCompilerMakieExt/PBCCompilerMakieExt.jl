@@ -257,14 +257,18 @@ end
 """
     plot_graph(weights::AbstractMatrix{<:Real}) -> Figure
 
-Plot the interaction graph G(V,E) from an adjacency matrix.
+Draw a weighted graph from its adjacency matrix.
 
-Vertices V correspond to indices 1..n (row/column indices of `weights`).
-Element `weights[i,j]` is the edge weight of the edge between vertex i and vertex j.
-Only edges with nonzero weight are drawn; edge thickness and opacity scale with weight.
-Edge weights are labelled at edge midpoints.
+Vertices are placed on a circle. Edges with positive weight are drawn in gray
+(opacity and thickness scale with weight); edges with negative weight are drawn
+in red (opacity and thickness scale with absolute weight). Zero-weight entries
+are skipped.
 
-Returns a CairoMakie `Figure`.
+# Arguments
+- `weights`: symmetric weight matrix of size n × n
+
+# Returns
+A `CairoMakie.Figure`.
 """
 function plot_graph(weights::AbstractMatrix{<:Real})
     n = size(weights, 1)
@@ -283,14 +287,25 @@ function plot_graph(weights::AbstractMatrix{<:Real})
     xs = cos.(angles)
     ys = sin.(angles)
 
-    max_w = maximum(weights)
+    pos_max = let ws = [weights[i,j] for i in 1:n for j in i+1:n if weights[i,j] > 0]
+        isempty(ws) ? 1.0 : Float64(maximum(ws))
+    end
+    neg_max = let ws = [abs(weights[i,j]) for i in 1:n for j in i+1:n if weights[i,j] < 0]
+        isempty(ws) ? 1.0 : Float64(maximum(ws))
+    end
 
     for i in 1:n, j in i+1:n
         w = weights[i, j]
         iszero(w) && continue
-        frac = w / max_w
+        if w > 0
+            frac = w / pos_max
+            edge_color = (:gray20, 0.3 + 0.7 * frac)
+        else
+            frac = abs(w) / neg_max
+            edge_color = (:crimson, 0.3 + 0.7 * frac)
+        end
         lines!(ax, [xs[i], xs[j]], [ys[i], ys[j]];
-               color=(:gray20, 0.3 + 0.7 * frac), linewidth=1 + 3 * frac)
+               color=edge_color, linewidth=1 + 3 * frac)
         mx, my = (xs[i] + xs[j]) / 2, (ys[i] + ys[j]) / 2
         text!(ax, mx, my; text=string(w), fontsize=11, align=(:center, :center))
     end
