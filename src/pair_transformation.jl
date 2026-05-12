@@ -26,7 +26,6 @@ julia> PBCCompiler.affectedpaulis(op)  # returns [1, 3]`
  + Z
 ```
 """
-
 function _affectedpaulis(op::CircuitOp.Type)
     pauli = @match op begin
         CircuitOp.Measurement(pauli, bit, qubits) => pauli
@@ -65,7 +64,6 @@ julia> PBCCompiler.complete_paulis(op1,op2)
 (+ X_Y__, + ____Z)
 ```
 """
-
 function _complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
     pu1=_affectedpaulis(op1)
     pu2=_affectedpaulis(op2)
@@ -113,7 +111,6 @@ julia> PBCCompiler.check_commutation(op1, CNOT)
 (0x01, 0x00)
 ```
 """
-
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
 
     @match (op1, op2) begin
@@ -177,7 +174,6 @@ julia> PBCCompiler.check_commutation(CNOT, op1)
 (CircuitOp.ExpQuatPiPauli(pauli=+ XXY, qubits=[1, 2, 3]), CircuitOp.PauliConditional(control_pauli=+ Z, control_qubits=[1], target_pauli=+ X, target_qubits=[2]))
 ```
 """
-
 function conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) #first input is the one we conjugate by, second input is the one we want to conjugate
     conjugated_op=@match (op1, op2) begin
      #scenario 1: one is a BitControlled gate
