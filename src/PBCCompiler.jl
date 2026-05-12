@@ -79,7 +79,11 @@ end
 
 ##
 
-"""TODO docstring"""
+"""
+Process a Clifford + T circuit into a Pauli Product circuit by appropriately commuting
+all Clifford gates past the nonClifford-gates and absorbing them in the Pauli Product Measurements.
+Then replace all nonClifford Pauli Product Rotations with gadgets.
+"""
 function preprocess_circuit(circuit::Circuit)
     remove_pauliconditional(circuit)
     commute_nonclifford_to_front(circuit)
@@ -111,23 +115,23 @@ end
 
 ##
 
-"""TODO docstring"""
+"""ADT representing different types of measurement result"""
 @data MeasurementResultType begin
-    """TODO docstring"""
+    """Denoting measurement results that classically determined by a coin flip"""
     ClassicalDetermRes
-    """TODO docstring"""
+    """Denoting measurement results that are classically determined by stored eigenvalues of stabilizers"""
     ClassicalRandomRes
-    """TODO docstring"""
+    """Denoting measurement results that require performing actual quantum measurement"""
     QuantumRes
 end
 
 using .MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 
-"""TODO docstring"""
+"""Struct holding measurement result value and its type"""
 struct MeasurementResult
-    """TODO docstring"""
+    """Single bit measurement result in boolean"""
     result::Union{Bool,Nothing}
-    """TODO docstring"""
+    """Measurement result type of this result (ClassicalDetermRes, ClassicalRandomRes, QuantumRes)"""
     result_type::MeasurementResultType.Type
 end
 
@@ -154,12 +158,12 @@ end
 
 """TODO docstring"""
 struct ComputerState
-    """TODO docstring"""
+    """Contain current circuit object"""
     circuit::Circuit
-    """TODO docstring"""
+    """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
-    """TODO docstring"""
-    memory_state::MemoryState
+    """Contain current quantum state"""
+    memory_state::test_MemoryState
 end
 
 ##
