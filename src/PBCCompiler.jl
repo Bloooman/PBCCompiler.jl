@@ -11,7 +11,7 @@ const P = typeof(P"XYZ")
 
 """TODO docstring"""
 @data CircuitOp begin
-    """TODO docstring"""
+    """Measurement of pauli string P (ie., + XY) on qubits in vector at field "qubits" (ie.,[1,3]), measurement result is stored in classical bit denoted in "bit" """
     struct Measurement
         pauli::P
         bit::Int
@@ -22,17 +22,17 @@ const P = typeof(P"XYZ")
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform Pauli Product Rotation(PPR) in the form of Pφ = exp(−iP φ), where P is pauli string, φ is an angle Perform pi/2 PPR on qubits denoted in Vector qubits"""
     struct ExpHalfPiPauli
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform pi/4 PPR on qubits denoted in Vector qubits"""
     struct ExpQuatPiPauli
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform pi/8 PPR on qubits denoted in Vector qubits"""
     struct ExpEighPiPauli
         pauli::P
         qubits::Vector{Int}
@@ -42,7 +42,7 @@ const P = typeof(P"XYZ")
         qubit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform a (pi/2) Pauli rotation (defined by target_pauli) on the target qubits, conditional on the control qubits falling into the -1 eigenspace of control_pauli"""
     struct PauliConditional
         control_pauli::P
         control_qubits::Vector{Int}
@@ -55,6 +55,7 @@ const P = typeof(P"XYZ")
         bit::Int
     end
 end
+
 
 """TODO docstring"""
 const Circuit = Vector{CircuitOp.Type}
