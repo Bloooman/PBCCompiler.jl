@@ -119,9 +119,9 @@ end
 
 """ADT representing different types of measurement result"""
 @data MeasurementResultType begin
-    """Denoting measurement results that classically determined by a coin flip"""
-    ClassicalDetermRes
     """Denoting measurement results that are classically determined by stored eigenvalues of stabilizers"""
+    ClassicalDetermRes
+    """Denoting measurement results that classically determined by a coin flip"""
     ClassicalRandomRes
     """Denoting measurement results that require performing actual quantum measurement"""
     QuantumRes

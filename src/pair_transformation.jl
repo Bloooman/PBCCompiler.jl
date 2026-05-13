@@ -40,9 +40,9 @@ end
     _complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (PauliOperator, PauliOperator)
 
 This helper function ensures that both operators are represented over the
-    union of their affected qubits. It reorders strings to a canonical qubit
-    ordering and pads missing sites with Identity operators ('_') to ensure
-    equal string length.
+union of their affected qubits. It reorders strings to a canonical qubit
+ordering and pads missing sites with Identity operators ('_') to ensure
+equal string length.
 
 # Examples
 ```jldoctest
@@ -86,10 +86,10 @@ end
     check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type) -> Int
 
 Return 0x00 if the two operations commute, and return 0x01 if they anticommute.
-    For classical controlled gates, the function will print a message indicating that the input is invalid and that the gate present needs to be determined first.
-    For Pauli Conditional gates, the function will check the commutation of the input operation with both the control and target Paulis of the conditional gate,
-    and return a tuple indicating the commutation results.
-    This function can handle all types of circuit operations defined in CircuitOp.
+For classical controlled gates, the function will print a message indicating that the input is invalid and that the gate present needs to be determined first.
+For Pauli Conditional gates, the function will check the commutation of the input operation with both the control and target Paulis of the conditional gate,
+and return a tuple indicating the commutation results.
+This function can handle all types of circuit operations defined in CircuitOp.
 
 # Examples
 ```jldoctest
@@ -151,8 +151,8 @@ end
 """
     conjugate(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (conjugated_op2::CircuitOp.Type, op1::CircuitOp.Type)
 
-    Move op2 pass op1 and update op2 by conjugating its pauli string by op1's pauli string.
-    Will return nothing if any argument is BitConditional operations or trying to move a controlled gate pass a PPR.
+Move op2 pass op1 and update op2 by conjugating its pauli string by op1's pauli string.
+Will return nothing if any argument is BitConditional operations or trying to move a controlled gate pass a PPR.
 
 # Examples
 ```jldoctest
