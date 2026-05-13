@@ -2,6 +2,7 @@ module PBCCompiler
 
 using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
+using Moshi.Derive: @derive
 using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor, Stabilizer
 using Random: randstring
 using StatsBase: sample
@@ -58,6 +59,7 @@ const P = typeof(P"XYZ")
     end
 end
 
+@derive CircuitOp[Hash, Eq, Show]
 
 """TODO docstring"""
 const Circuit = Vector{CircuitOp.Type}
@@ -212,7 +214,7 @@ struct ComputerState
     """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
     """Contain current quantum state"""
-    memory_state::test_MemoryState
+    memory_state::MemoryState
 end
 
 ##
