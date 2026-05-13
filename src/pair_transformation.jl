@@ -65,20 +65,12 @@ julia> PBCCompiler._complete_paulis(op1,op2)
 function _complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
     pu1=_affectedpaulis(op1)
     pu2=_affectedpaulis(op2)
-    @debug("Affected Paulis of op1: ", pu1)
-    @debug("Affected Paulis of op2: ", pu2)
     qu1=_affectedqubits(op1)
     qu2=_affectedqubits(op2)
-    @debug("Affected qubits of op1: ", qu1)
-    @debug("Affected qubits of op2: ", qu2)
     AffectedQubbits=sort(union(qu1,qu2))
-    @debug("Affected qubits of both ops: ", AffectedQubbits)
     Paulilen=maximum(AffectedQubbits)
-    @debug("Length of the affected Pauli string: ", Paulilen)
     Pauli1=embed(Paulilen, op1.qubits, pu1)
     Pauli2=embed(Paulilen, op2.qubits, pu2)
-    @debug("New Pauli string of op1: ", Pauli1)
-    @debug("New Pauli string of op2: ", Pauli2)
     return (Pauli1, Pauli2)
 end
 
@@ -114,37 +106,22 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1, op2) begin
         #scenario 1: One of them is classical controlled gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
-            println("Invalid input: Need to determine gate present first")
+            return nothing
         end
         #scenario 2: One of them is Pauli Conditional gate
         (op, CircuitOp.PauliConditional(cp, cq, tp, tq)) || (CircuitOp.PauliConditional(cp, cq, tp, tq), op) => begin
-            @debug("One of the operations is a Pauli conditional gate. ")
             cop=CircuitOp.ExpQuatPiPauli(cp, cq)
             top=CircuitOp.ExpQuatPiPauli(tp, tq)
             comm_cop=check_commutation(op, cop)
             comm_top=check_commutation(op, top)
-            if comm_cop == 0 && comm_top == 0
-                @debug("The operation commutes with both the control and target Paulis of the conditional gate.")
-            elseif comm_cop != 0 && comm_top != 0
-                @debug("The operation anticommutes with both the control and target Paulis of the conditional gate.")
-            else
-                @debug("The operation commutes with one of the control and target Paulis of the conditional gate, and anticommutes with the other.")
-            end
             return (comm_cop, comm_top)
         end
         #scenario 3: Both are Pauli Product Rotations
         _ => begin
             (Pauli1,Pauli2)=_complete_paulis(op1, op2)
             commutativity=comm(Pauli1,Pauli2)
-            if commutativity == 0
-                @debug("The two operations commute.")
-            else
-                @debug("The two operations anticommute.")
-            end
             return commutativity
         end
-
-
     end
 end
 
