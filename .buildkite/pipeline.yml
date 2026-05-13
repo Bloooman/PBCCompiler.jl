@@ -24,10 +24,10 @@ steps:
     matrix:
       setup:
         LABEL: ["base tests"]
-        QUEUE: ["default"]
+        QUEUE: ["default-queue"]
         JET_TEST: ["false"]
       adjustments:
         - with:
             LABEL: "JET"
-            QUEUE: default
+            QUEUE: default-queue
             JET_TEST: true
