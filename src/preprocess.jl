@@ -8,7 +8,7 @@ end
 """Function for checking if the pauli and qubits field denotes different number of qubits"""
 function _validate_CircuitOp(op::CircuitOp.Type)
     p=_affectedpaulis(op)
-    q=affectedqubits(op)
+    q=_affectedqubits(op)
     name=variant_name(op)
     if length(p) != length(q)
         throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
@@ -33,7 +33,7 @@ end
 function _get_circuit_width(circuit::Circuit)
     width=0
     for i in circuit
-        width=max(width,maximum(affectedqubits(i)))
+        width=max(width,maximum(_affectedqubits(i)))
     end
     return width
 end
@@ -84,7 +84,7 @@ function _gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magi
     num_bit=_get_bit_number(circuit)
             if isa_variant(op,CircuitOp.ExpEighPiPauli)
                 P=_affectedpaulis(op)
-                Q=affectedqubits(op)
+                Q=_affectedqubits(op)
                 magic_state=[num_input_qubit+num_magic_state]
                 Pauli=tensor(P,P"Z")
                 Qubit=[Q;magic_state]

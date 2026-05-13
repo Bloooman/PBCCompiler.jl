@@ -2,6 +2,7 @@ module PBCCompiler
 
 using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
+using Moshi.Derive: @derive
 using QuantumClifford: PauliOperator, @P_str, comm, embed, ⊗, random_pauli, tensor, @S_str, Stabilizer, project!
 using Random: randstring
 using StatsBase: sample
@@ -57,6 +58,8 @@ const P = typeof(P"XYZ")
         bit::Int
     end
 end
+
+@derive CircuitOp[Hash, Eq, Show]
 
 """TODO docstring"""
 const Circuit = Vector{CircuitOp.Type}
@@ -182,6 +185,8 @@ struct MeasurementResult
     """Measurement result type of this result (ClassicalDetermRes, ClassicalRandomRes, QuantumRes)"""
     result_type::MeasurementResultType.Type
 end
+
+@derive MeasurementResultType[Hash, Eq, Show]
 
 """TODO docstring"""
 classical_deterministic_result(m::Union{Bool,Nothing}) = MeasurementResult(m, ClassicalDetermRes())
