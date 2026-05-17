@@ -1,6 +1,6 @@
 module PBCCompiler
 
-using Moshi.Data: @data, variant_name
+using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
 using QuantumClifford: PauliOperator, @P_str, embed, comm, ⊗
 using Moshi.Derive: @derive
