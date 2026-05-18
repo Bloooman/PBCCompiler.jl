@@ -121,10 +121,10 @@ function remove_pauliconditional(circuit::Circuit)
 end
 
 """TODO docstring"""
-function _group_nonclifford(circuit::Circuit)
-    if _find_variant_indices(circuit,ExpEighPiPauli) != []
-        for index in _find_variant_indices(circuit,ExpEighPiPauli)
-            circuit=traversal(circuit, conjugate, :left, 1, index-1)
+function group_nonclifford(circuit::Circuit)
+    if find_variant_indices(circuit,ExpEighPiPauli) != []
+        for index in find_variant_indices(circuit,ExpEighPiPauli)
+            circuit=traversal(circuit, conjugate_noncliff, :left, 1, index-1)
         end
     end
 end
@@ -137,10 +137,10 @@ function merge_ops(circuit::Circuit)
 end
 
 """TODO docstring"""
-function _remove_clifford(circuit::Circuit)
-    _validate_circuit(circuit)
-    for index in _find_variant_indices(circuit,Measurement)
-        circuit=traversal(circuit, conjugate, :left, 1, index-1)
+function remove_clifford(circuit::Circuit)
+    validate_circuit(circuit)
+    for index in find_variant_indices(circuit,Measurement)
+        circuit=traversal(circuit, conjugate_measurement, :left, 1, index-1)
     end
     return circuit
 end
