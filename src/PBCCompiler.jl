@@ -14,7 +14,7 @@ const P = typeof(P"XYZ")
 
 """TODO docstring"""
 @data CircuitOp begin
-    """TODO docstring"""
+    """Measurement of pauli string P (ie., + XY) on qubits in vector at field "qubits" (ie.,[1,3]), measurement result is stored in classical bit denoted in "bit" """
     struct Measurement
         pauli::P
         bit::Int
@@ -25,17 +25,17 @@ const P = typeof(P"XYZ")
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform Pauli Product Rotation(PPR) in the form of Pφ = exp(−iP φ), where P is pauli string, φ is an angle Perform pi/2 PPR on qubits denoted in Vector qubits"""
     struct ExpHalfPiPauli
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform pi/4 PPR on qubits denoted in Vector qubits"""
     struct ExpQuatPiPauli
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform pi/8 PPR on qubits denoted in Vector qubits"""
     struct ExpEighPiPauli
         pauli::P
         qubits::Vector{Int}
@@ -45,7 +45,7 @@ const P = typeof(P"XYZ")
         qubit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform a (pi/2) Pauli rotation (defined by target_pauli) on the target qubits, conditional on the control qubits falling into the -1 eigenspace of control_pauli"""
     struct PauliConditional
         control_pauli::P
         control_qubits::Vector{Int}
@@ -105,14 +105,14 @@ end
 
 """Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4."""
 function remove_pauliconditional(circuit::Circuit)
-    len=length(circuit)
-    for i in 1:len
+    indices=find_variant_indices(circuit,PauliConditional)
+    for i in reverse(indices)
         op=circuit[i]
         @match op begin
-            PauliConditional(cp, cq, tp, tq) => begin
-                op_1=ExpQuatPiPauli(-cp, cq)
-                op_2=ExpQuatPiPauli(-tp, tq)
-                op_3=ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+            CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
+                op_1=CircuitOp.ExpQuatPiPauli(-cp, cq)
+                op_2=CircuitOp.ExpQuatPiPauli(-tp, tq)
+                op_3=CircuitOp.ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
                 splice!(circuit, i, (op_3, op_2, op_1))
             end
             _ => nothing
@@ -122,9 +122,9 @@ end
 
 """TODO docstring"""
 function group_nonclifford(circuit::Circuit)
-    if _find_nonclifford_indices(circuit) != []
-        for index in _find_nonclifford_indices(circuit)
-            circuit=traversal(circuit, conjugate, :left, 1, index-1)
+    if find_variant_indices(circuit,ExpEighPiPauli) != []
+        for index in find_variant_indices(circuit,ExpEighPiPauli)
+            circuit=traversal(circuit, conjugate_noncliff, :left, 1, index-1)
         end
     end
 end
@@ -133,36 +133,38 @@ end
     For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
     A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed."""
 function merge_ops(circuit::Circuit)
-    traversal(circuit,_merge_rotations, :left, 1, :end)
+    traversal(circuit,merge_rotations, :left, 1, :end)
 end
 
 """TODO docstring"""
 function remove_clifford(circuit::Circuit)
-    _validate_circuit(circuit)
-    for index in _find_measurement_indices(circuit)
-        circuit=traversal(circuit, conjugate, :left, 1, index-1)
+    validate_circuit(circuit)
+    for index in find_variant_indices(circuit,Measurement)
+        circuit=traversal(circuit, conjugate_measurement, :left, 1, index-1)
     end
     return circuit
 end
 
 """TODO docstring"""
 function remove_nonclifford(circuit::Circuit)
-    num_non_clifford=length(_find_nonclifford_indices(circuit))
-    num_input_qubit=_get_circuit_width(circuit)
+    indices=find_variant_indices(circuit,ExpEighPiPauli)
+    num_input_qubit=get_circuit_width(circuit)
     num_magic_state=0
-    for i in 1:num_non_clifford
-        index=_find_nonclifford_indices(circuit)[1]
-        num_magic_state=+1
-        _gadgetize(circuit, index, num_input_qubit, num_magic_state)
+    for i in reverse(indices)
+        num_magic_state+=1
+        op=circuit[i]
+        gadget = gadgetize(op, num_input_qubit, num_magic_state)
+        splice!(circuit, i, gadget)
     end
 end
 
 """TODO docstring"""
 function remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
-    index=maximum(_find_measurement_indices(circuit))
+    index=maximum(find_variant_indices(circuit,Measurement))
     resize!(circuit, index)
 end
+
 
 ##
 
@@ -239,14 +241,14 @@ include("joint_measurement_check.jl")
 
 """Get initial ComputerState using input circuit and input state"""
 function get_CompState(circuit::Circuit, input_state::Stabilizer)
-    num_pauli_qubits=_get_circuit_width(circuit)
+    num_pauli_qubits=get_circuit_width(circuit)
     PauliQubits=Int[1:num_pauli_qubits;]
     preprocess_circuit(circuit)
-    MagicQubits=Int[num_pauli_qubits+1: _get_circuit_width(circuit);]
-    num_bits=_get_bit_number(circuit)
+    MagicQubits=Int[num_pauli_qubits+1: get_circuit_width(circuit);]
+    num_bits=get_bit_number(circuit)
     MeasRes=Vector{MeasurementResult}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    Stabilzier_Group=_make_stabilizer_list(input_state, circuit)
+    Stabilzier_Group=make_stabilizer_list(input_state, circuit)
     MS=test_MemoryState(PauliQubits, MagicQubits, MeasRes, Stabilzier_Group, creg)
     CS=ComputerState(circuit, 1, MS)
     return CS
@@ -277,11 +279,11 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
     i=compstate.instruction_pointer
     MS=compstate.memory_state
     @debug("Now working with $i th measurement")
-    Meas_List = _find_measurement_indices(circuit)
+    Meas_List = find_variant_indices(circuit,Measurement)
     Meas_i=circuit[Meas_List[i]]
     bit_index=Meas_i.bit
     CheckList=MS.StabilizerGroup
-    (MR,j)=_get_measurement_result(CheckList, Meas_i, _get_circuit_width(circuit))
+    (MR,j)=get_measurement_result(CheckList, Meas_i, get_circuit_width(circuit))
     MS.measurement_results[bit_index]=MR
     MS.classical_register[bit_index]=MR.result
     @match MR.result_type begin
@@ -295,7 +297,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
         end
         ClassicalRandomRes() => begin
             @debug("This measurement outputs Classical Random Result")
-            q_1=[1:_get_circuit_width(circuit);]
+            q_1=[1:get_circuit_width(circuit);]
             Q_1=ExpQuatPiPauli(CheckList[j],q_1)
             p_2=(-1)^MR.result*Meas_i.pauli
             Q_2=ExpQuatPiPauli(p_2,Meas_i.qubits)
@@ -311,8 +313,8 @@ end
 function run(input_circuit::Circuit, input_state::Stabilizer)
     # run preprocessing
     # prepare ComputerState
-    _validate_circuit(input_circuit)
-    _validate_input(input_circuit,input_state)
+    validate_circuit(input_circuit)
+    validate_input(input_circuit,input_state)
     CS = get_CompState(input_circuit, input_state)
     len=length(CS.memory_state.classical_register)
     while true && !isempty(CS.circuit)
