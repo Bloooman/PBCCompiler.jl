@@ -95,17 +95,17 @@ function preprocess_circuit(circuit::Circuit)
     if isempty(circuit) || length(circuit) < 2
         return circuit
     end
-    _remove_pauliconditional(circuit)
-    _group_nonclifford(circuit)
-    _merge_ops(circuit)
-    _remove_clifford(circuit)
-    _remove_nonclifford(circuit)
-    _remove_post_measurement(circuit)
+    remove_pauliconditional(circuit)
+    group_nonclifford(circuit)
+    merge_ops(circuit)
+    remove_clifford(circuit)
+    remove_nonclifford(circuit)
+    remove_post_measurement(circuit)
 end
 
 """Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4."""
-function _remove_pauliconditional(circuit::Circuit)
-    indices=_find_variant_indices(circuit,PauliConditional)
+function remove_pauliconditional(circuit::Circuit)
+    indices=find_variant_indices(circuit,PauliConditional)
     for i in reverse(indices)
         op=circuit[i]
         @match op begin
@@ -132,8 +132,8 @@ end
 """Identifies and combines identical Pauli rotations:
     For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
     A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed."""
-function _merge_ops(circuit::Circuit)
-    traversal(circuit,_merge_rotations, :left, 1, :end)
+function merge_ops(circuit::Circuit)
+    traversal(circuit,merge_rotations, :left, 1, :end)
 end
 
 """TODO docstring"""
@@ -157,9 +157,9 @@ function _remove_nonclifford(circuit::Circuit)
 end
 
 """TODO docstring"""
-function _remove_post_measurement(circuit::Circuit)
+function remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
-    index=maximum(_find_variant_indices(circuit,Measurement))
+    index=maximum(find_variant_indices(circuit,Measurement))
     resize!(circuit, index)
 end
 

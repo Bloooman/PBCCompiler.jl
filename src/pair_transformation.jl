@@ -37,7 +37,7 @@ function affectedpaulis(op::CircuitOp.Type)
 end
 
 """
-    _complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (PauliOperator, PauliOperator)
+    complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (PauliOperator, PauliOperator)
 
 This helper function ensures that both operators are represented over the
 union of their affected qubits. It reorders strings to a canonical qubit
@@ -50,7 +50,7 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
 julia> op2 = PBCCompiler.ExpQuatPiPauli(P"ZXY",[3, 1, 2]);
 
-julia> PBCCompiler._complete_paulis(op1,op2)
+julia> PBCCompiler.complete_paulis(op1,op2)
 (+ X_Y, + XYZ)
 ```
 ```jldoctest
@@ -58,7 +58,7 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
 julia> op2 = PBCCompiler.ExpHalfPiPauli(P"Z", [5]);
 
-julia> PBCCompiler._complete_paulis(op1,op2)
+julia> PBCCompiler.complete_paulis(op1,op2)
 (+ X_Y__, + ____Z)
 ```
 """
@@ -95,7 +95,6 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 julia> CNOT = PBCCompiler.PauliConditional(P"Z", [1], P"X", [2]);
 
 julia> PBCCompiler.check_commutation(op1, CNOT)
-(0x01, 0x00)
 ```
 """
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
@@ -130,12 +129,12 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 julia> op2 = PBCCompiler.ExpEighPiPauli(P"ZXY",[3, 1, 2]);
 
 julia> PBCCompiler.conjugate_noncliff(op1, op2)
-(CircuitOp.ExpQuatPiPauli(pauli=- _YX, qubits=[1, 2, 3]), CircuitOp.ExpQuatPiPauli(pauli=+ XY, qubits=[1, 3]))
+(CircuitOp.ExpEighPiPauli(pauli=- _YX, qubits=[1, 2, 3]), CircuitOp.ExpQuatPiPauli(pauli=+ XY, qubits=[1, 3]))
 ```
 ```jldoctest
 julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
-julia> M_Z=CircuitOp.Measurement(P"Z", 1, [2]);
+julia> M_Z = PBCCompiler.Measurement(P"Z", 1, [2]);
 
 julia> PBCCompiler.conjugate_noncliff(op1, M_Z)
 ERROR: ArgumentError: conjugate_noncliff got unexpected variant: Measurement
@@ -170,9 +169,9 @@ Will throw error message if op2 is not a Measurement CircuitOp. Return nothing i
 ```jldoctest
 julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
-julia> M_Z=CircuitOp.Measurement(P"Z", 1, [2]);
+julia> M_Z=PBCCompiler.Measurement(P"Z", 1, [2]);
 
-julia> PBCCompiler.conjugate_measurement(op1, op2)
+julia> PBCCompiler.conjugate_measurement(op1, M_Z)
 (CircuitOp.Measurement(pauli=+ _Z_, bit=1, qubits=[1, 2, 3]), CircuitOp.ExpQuatPiPauli(pauli=+ XY, qubits=[1, 3]))
 ```
 ```jldoctest
@@ -235,11 +234,11 @@ end
 """
 Helper functions to cancel out adjacent PPR pair
 """
-function _merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
+function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1,op2) begin
         (ExpEighPiPauli(),ExpEighPiPauli()) => begin
-            (p1,p2)=_complete_paulis(op1,op2)
-            qm=maximum(sort(union(_affectedqubits(op1), _affectedqubits(op2))))
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
             q=[x for x in 1:qm]
             if p1.xz == p2.xz
                 if xor(p1.phase[1], p2.phase[1]) == 0x02
@@ -253,8 +252,8 @@ function _merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
         end
         (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
-            (p1,p2)=_complete_paulis(op1,op2)
-            qm=maximum(sort(union(_affectedqubits(op1), _affectedqubits(op2))))
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
             q=[x for x in 1:qm]
             if p1.xz == p2.xz
                 if xor(p1.phase[1], p2.phase[1]) == 0x02
@@ -268,8 +267,8 @@ function _merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
             end
         end
         (ExpHalfPiPauli(),ExpHalfPiPauli()) => begin
-            (p1,p2)=_complete_paulis(op1,op2)
-            qm=maximum(sort(union(_affectedqubits(op1), _affectedqubits(op2))))
+            (p1,p2)=complete_paulis(op1,op2)
+            qm=maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
             q=[x for x in 1:qm]
             if p1.xz == p2.xz
                 return ExpHalfPiPauli(p1*p2,q)
