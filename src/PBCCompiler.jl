@@ -146,13 +146,15 @@ function remove_clifford(circuit::Circuit)
 end
 
 """TODO docstring"""
-function _remove_nonclifford(circuit::Circuit)
-    indices=_find_variant_indices(circuit,ExpEighPiPauli)
-    num_input_qubit=_get_circuit_width(circuit)
+function remove_nonclifford(circuit::Circuit)
+    indices=find_variant_indices(circuit,ExpEighPiPauli)
+    num_input_qubit=get_circuit_width(circuit)
     num_magic_state=0
     for i in reverse(indices)
         num_magic_state+=1
-        _gadgetize(circuit, i, num_input_qubit, num_magic_state)
+        op=circuit[i]
+        gadget = gadgetize(op, num_input_qubit, num_magic_state)
+        splice!(circuit, i, gadget)
     end
 end
 

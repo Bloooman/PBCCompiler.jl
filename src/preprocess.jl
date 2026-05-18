@@ -65,18 +65,17 @@ function find_variant_indices(vec, ::Type{T}) where T
 end
 
 """
-Function that replace all non-Clifford circuit operations with BitConditional CircuitOps
+Function that replace a non-Clifford circuit operation with BitConditional CircuitOps
 Each BitConditional CircuitOp contains a gadget(a set of four consecutive CircuitOps) for pi/8 rotation implementation:
     Realize pi/8 rotation by consuming a |T ⟩ ancilla state
     perform a joint measurement P ⊗ Z between data and ancilla,
     then apply a conditional Clifford correction
 """
-function _gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magic_state::Int)
-    op=circuit[index]
+function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_magic_state::Int)
     num_bit=num_input_qubit
     if isa_variant(op,CircuitOp.ExpEighPiPauli)
-        P=_affectedpaulis(op)
-        Q=_affectedqubits(op)
+        P=affectedpaulis(op)
+        Q=affectedqubits(op)
         magic_state=[num_input_qubit+num_magic_state]
         Pauli=tensor(P,P"Z")
         Qubit=[Q;magic_state]
@@ -87,7 +86,7 @@ function _gadgetize(circuit::Circuit, index::Int, num_input_qubit::Int, num_magi
         BitConditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
         BitConditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
         gadget=[Measurement_1, Measurement_2, BitConditional_1, BitConditional_2]
-        splice!(circuit, index, gadget)
+        return gadget
     else
         nothing
     end
