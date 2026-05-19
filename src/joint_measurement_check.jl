@@ -7,7 +7,7 @@ using Moshi.Data: variant_name, isa_variant
 ##
 
 function validate_input(circuit::Circuit, input::Stabilizer)
-    if _get_circuit_width(circuit)<length(input[1])
+    if get_circuit_width(circuit)<length(input[1])
         throw(ArgumentError("Input state has more qubits than circuit input"))
     else
         nothing
@@ -75,7 +75,7 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
     dummy=compstate.dummy
     ms=compstate.memory_state
     s=ms.StabilizerGroup
-    num_qubits = _get_circuit_width(compstate.circuit)
+    num_qubits = get_circuit_width(compstate.circuit)
     MagicQubits = ms.magic_qubits
     quantum_state = ms.quantum_memory
     @debug "Current quantum memory holds" quantum_state _group=:api

@@ -1,7 +1,4 @@
-    """
-    This file contains functions for analyzing computed&compiled circuits
-    """
-
+#This file contains functions for analyzing computed&compiled circuits
 ##
 using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using QuantumClifford: xbit, zbit
@@ -16,7 +13,7 @@ Get measurement result distribution of given input circuit and input state by ru
 Return calculated result distribution and raw result count
 """
 function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots::Int=1000)
-    num_bits = _get_circuit_width(input_circuit)
+    num_bits = get_circuit_width(input_circuit)
     len = 2^num_bits
     distribution = zeros(Int, len)
     data = zeros(Int, num_shots)
@@ -244,33 +241,6 @@ function variant_hypergraph(hypergraphs::Vector{KaHyPar.HyperGraph})::KaHyPar.Hy
 
     return KaHyPar.HyperGraph(A, vertex_weights, edge_weights)
 end
-##
-"""
-    HyperedgeCut(h::KaHyPar.HyperGraph, parts::Vector{Int64}) -> Int64
-
-Count the number of cut hyperedges in a partitioned hypergraph.
-
-# Arguments
-- `h`: a KaHyPar hypergraph with CSR-encoded edge structure
-- `parts`: partition assignment vector (1-indexed); `parts[v+1]` gives the
-  0-based block ID of 0-indexed vertex `v`; length must equal `h.n_vertices`
-
-# Returns
-Number of hyperedges whose vertices span more than one partition block.
-"""
-function HyperedgeCut(h::KaHyPar.HyperGraph, parts::Vector{Int64})::Int64
-    n_edges = length(h.edge_indices) - 1
-    count = 0
-    for e in 1:n_edges
-        start = Int(h.edge_indices[e]) + 1     # 0-based C offset → 1-based Julia index
-        stop  = Int(h.edge_indices[e + 1])     # 0-based exclusive end = 1-based inclusive end
-        first_part = parts[Int(h.hyperedges[start]) + 1]
-        is_cut = any(parts[Int(h.hyperedges[i]) + 1] != first_part for i in (start + 1):stop)
-        count += is_cut
-    end
-    return count
-end
-
 ##
 """
     HyperedgeCut(h::KaHyPar.HyperGraph, parts::Vector{Int64}) -> Int64
