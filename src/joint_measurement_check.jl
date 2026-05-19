@@ -15,9 +15,9 @@ function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     if !isa_variant(op,CircuitOp.Measurement)
         return nothing
     else
-        Paulilen = num_qubits
-        Pauli=embed(Paulilen, op.qubits, op.pauli)
-        return project!(copy(s),Pauli)
+        paulilen = num_qubits
+        pauli=embed(paulilen, op.qubits, op.pauli)
+        return project!(copy(s),pauli)
     end
 end
 
@@ -70,10 +70,10 @@ end
 
 """Resolve conditional circuit operations defined by CircuitOp.BitConditional"""
 function resolve_conditionals(compstate::ComputerState)
-    CS=compstate
-    circuit=CS.circuit
-    MS=CS.memory_state
-    creg=MS.classical_register
+    cs=compstate
+    circuit=cs.circuit
+    ms=cs.memory_state
+    creg=ms.classical_register
     index=find_variant_indices(circuit,BitConditional)
     for i in index
         @debug("Start resolving BitConditional at $i")
