@@ -3,41 +3,42 @@
     """
 
 """
-    affectedpaulis(op::CircuitOp.Type) -> Vector{P}
+    paulis(op::CircuitOp.Type) -> PauliOperator
 
-Return the list of Pauli operators affected by a circuit operation.
+Return Pauli string that defines the collective eigen-axis of the operation; a Pauli Product Rotation rotates the multi-qubit state around this axis by an angle phi,
+while a Pauli Product Measurement projects the system directly into its collective directional eigenstates
 
 # Examples
 ```jldoctest
 julia> op = PBCCompiler.Pauli(P"XY", [1, 2]);
 
-julia> PBCCompiler.affectedpaulis(op)  # returns [1, 2]
+julia> PBCCompiler.paulis(op)
 + XY
 ```
 ```jldoctest
 julia> op = PBCCompiler.PauliConditional(P"X", [1], P"Z", [3]);
 
-julia> PBCCompiler.affectedpaulis(op)  # returns [1, 3]`
+julia> PBCCompiler.paulis(op)
 2-element Vector{PauliOperator{Array{UInt8, 0}, Vector{UInt64}}}:
  + X
  + Z
 ```
 """
-function affectedpaulis(op::CircuitOp.Type)
+function paulis(op::CircuitOp.Type)
     pauli = @match op begin
         CircuitOp.Pauli(pauli, qubits) => pauli
         CircuitOp.Measurement(pauli, bit, qubits) => pauli
         CircuitOp.ExpHalfPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpQuatPiPauli(pauli, qubits) => pauli
         CircuitOp.ExpEighPiPauli(pauli, qubits) => pauli
-        CircuitOp.PauliConditional(cp, cq, tp, tq) => vcat(cp, tp)
-        CircuitOp.BitConditional(inner_op, bit) => affectedpaulis(inner_op)
+        CircuitOp.PauliConditional(cp, cq, tp, tq) => error("pauli called on PauliConditional — decompose first")
+        CircuitOp.BitConditional(inner_op, bit) => paulis(inner_op)
     end
     return pauli
 end
 
 """
-    _complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (PauliOperator, PauliOperator)
+    complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type) -> (PauliOperator, PauliOperator)
 
 This helper function ensures that both operators are represented over the
 union of their affected qubits. It reorders strings to a canonical qubit
@@ -50,7 +51,7 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
 julia> op2 = PBCCompiler.ExpQuatPiPauli(P"ZXY",[3, 1, 2]);
 
-julia> PBCCompiler._complete_paulis(op1,op2)
+julia> PBCCompiler.complete_paulis(op1,op2)
 (+ X_Y, + XYZ)
 ```
 ```jldoctest
@@ -58,13 +59,13 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 
 julia> op2 = PBCCompiler.ExpHalfPiPauli(P"Z", [5]);
 
-julia> PBCCompiler._complete_paulis(op1,op2)
+julia> PBCCompiler.complete_paulis(op1,op2)
 (+ X_Y__, + ____Z)
 ```
 """
 function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    pu1=affectedpaulis(op1)
-    pu2=affectedpaulis(op2)
+    pu1=paulis(op1)
+    pu2=paulis(op2)
     qu1=affectedqubits(op1)
     qu2=affectedqubits(op2)
     AffectedQubbits=sort(union(qu1,qu2))
@@ -95,7 +96,6 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 julia> CNOT = PBCCompiler.PauliConditional(P"Z", [1], P"X", [2]);
 
 julia> PBCCompiler.check_commutation(op1, CNOT)
-(0x01, 0x00)
 ```
 """
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
