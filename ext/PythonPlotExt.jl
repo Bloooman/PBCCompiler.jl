@@ -3,7 +3,6 @@ module PythonPlotExt
 
 using PBCCompiler
 using PythonCall
-using CondaPkg
 using PBCCompiler: Circuit, CircuitOp
 using QuantumClifford: PauliOperator, @P_str
 using Moshi.Data: isa_variant
