@@ -21,7 +21,7 @@ function validate_CircuitOp(op::CircuitOp.Type)
             end
         end
         _ => begin
-            p=affectedpaulis(op)
+            p=paulis(op)
             q=affectedqubits(op)
             name=variant_name(op)
             if length(p) != length(q)
@@ -72,18 +72,18 @@ Each BitConditional CircuitOp contains a gadget(a set of four consecutive Circui
 function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_magic_state::Int)
     num_bit=num_input_qubit
     if isa_variant(op,CircuitOp.ExpEighPiPauli)
-        P=affectedpaulis(op)
+        P=paulis(op)
         Q=affectedqubits(op)
         magic_state=[num_input_qubit+num_magic_state]
-        Pauli=tensor(P,P"Z")
-        Qubit=[Q;magic_state]
+        pauli=tensor(P,P"Z")
+        qubit=[Q;magic_state]
         magic_bit_1=num_bit+2*num_magic_state-1
         magic_bit_2=num_bit+2*num_magic_state
-        Measurement_1=CircuitOp.Measurement(Pauli,magic_bit_1,Qubit)
-        Measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
-        BitConditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
-        BitConditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
-        gadget=[Measurement_1, Measurement_2, BitConditional_1, BitConditional_2]
+        measurement_1=CircuitOp.Measurement(pauli,magic_bit_1,qubit)
+        measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
+        bitconditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
+        bitconditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
+        gadget=[measurement_1, measurement_2, bitconditional_1, bitconditional_2]
         return gadget
     else
         nothing
