@@ -1,6 +1,6 @@
-    """
-    This file contains pair transformation functions that operate on adjacent pair of CircuitOps
-    """
+
+#This file contains pair transformation functions that operate on adjacent pair of CircuitOps
+
 
 """
     paulis(op::CircuitOp.Type) -> PauliOperator

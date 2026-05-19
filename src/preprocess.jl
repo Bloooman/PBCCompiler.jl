@@ -1,6 +1,4 @@
-"""
-Functions for compiling quantum circuits by moving measurement operations to the beginning of the circuit.
-"""
+#Functions for compiling quantum circuits by moving measurement operations to the beginning of the circuit.
 ##
 using Moshi.Data: variant_name, isa_variant
 using Moshi.Match: @match

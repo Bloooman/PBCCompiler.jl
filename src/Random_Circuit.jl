@@ -3,7 +3,7 @@ using StatsBase: sample
 using QuantumClifford: random_pauli
 ##
 """
-    generate_random_circuit(num_ops::Int, num_qubits::Int) -> Circuit
+    random_test_circuit(num_ops::Int, num_qubits::Int) -> Circuit
 
 Generate a random circuit with `num_ops` gate operations followed by one
 measurement per qubit.
