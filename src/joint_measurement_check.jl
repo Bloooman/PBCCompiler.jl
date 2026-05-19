@@ -6,7 +6,7 @@ using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, tensor_
 using Moshi.Data: variant_name, isa_variant
 ##
 
-function _validate_input(circuit::Circuit, input::Stabilizer)
+function validate_input(circuit::Circuit, input::Stabilizer)
     if _get_circuit_width(circuit)<length(input[1])
         throw(ArgumentError("Input state has more qubits than circuit input"))
     else
@@ -14,7 +14,7 @@ function _validate_input(circuit::Circuit, input::Stabilizer)
     end
 end
 
-function _find_BitConditional_indices(circuit::Circuit)
+function find_BitConditional_indices(circuit::Circuit)
     BitConditional_indices = []
     for (index, op) in enumerate(circuit)
         if isa_variant(op, CircuitOp.BitConditional)
@@ -24,7 +24,7 @@ function _find_BitConditional_indices(circuit::Circuit)
     return BitConditional_indices
 end
 
-function _create_hadamard_basis_state(num_qubit::Int)
+function create_hadamard_basis_state(num_qubit::Int)
     n = num_qubit
 
     generators = one(Stabilizer, n; basis=:X)
@@ -32,10 +32,10 @@ function _create_hadamard_basis_state(num_qubit::Int)
     return Stabilizer(generators)
 end
 
-function _create_magic_state(num_magic::Int)
+function create_magic_state(num_magic::Int)
     n=num_magic
 
-    generators = GeneralizedStabilizer(_create_hadamard_basis_state(n))
+    generators = GeneralizedStabilizer(create_hadamard_basis_state(n))
 
     T = tensor_pow(pcT,n)
 
@@ -50,7 +50,7 @@ Function that performs commutation and depedency checks on Pauli Product Measure
 Return (Stabilizer, anti-commuting stabilizer index, measurement result in UInt8 (nothing if can't be determined))
 In the case that PPM is commuting and independent, second field will return index = length(Stabilizer)+1, third field nothing
 """
-function _check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
+function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
     if !isa_variant(op,CircuitOp.Measurement)
         return nothing
     else
@@ -80,7 +80,7 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
     quantum_state = ms.quantum_memory
     @debug "Current quantum memory holds" quantum_state _group=:api
     len=length(s)
-    projection = _check_PPM(s, op, num_qubits)
+    projection = check_PPM(s, op, num_qubits)
     if projection === nothing
         return nothing
     else
@@ -107,12 +107,12 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
 end
 
 """Resolve conditional circuit operations defined by CircuitOp.BitConditional"""
-function _resolve_conditionals(compstate::ComputerState)
+function resolve_conditionals(compstate::ComputerState)
     CS=compstate
     circuit=CS.circuit
     MS=CS.memory_state
     creg=MS.classical_register
-    index=_find_BitConditional_indices(circuit)
+    index=find_BitConditional_indices(circuit)
     for i in index
         @debug("Start resoving BitConditional at $i")
         operation=circuit[i]
