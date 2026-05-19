@@ -19,9 +19,7 @@ julia> PBCCompiler.paulis(op)
 julia> op = PBCCompiler.PauliConditional(P"X", [1], P"Z", [3]);
 
 julia> PBCCompiler.paulis(op)
-2-element Vector{PauliOperator{Array{UInt8, 0}, Vector{UInt64}}}:
- + X
- + Z
+ERROR: pauli called on PauliConditional — decompose first
 ```
 """
 function paulis(op::CircuitOp.Type)
@@ -68,8 +66,8 @@ function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
     pu2 = paulis(op2)
     qu1 = affectedqubits(op1)
     qu2 = affectedqubits(op2)
-    affectedqubits = sort(union(qu1,qu2))
-    paulilen = maximum(affectedqubits)
+    affected_qubits = sort(union(qu1,qu2))
+    paulilen = maximum(affected_qubits)
     pauli1 = embed(paulilen, op1.qubits, pu1)
     pauli2 = embed(paulilen, op2.qubits, pu2)
     return (pauli1, pauli2)
