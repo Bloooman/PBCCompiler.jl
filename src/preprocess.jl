@@ -143,8 +143,7 @@ end
 
 """TODO docstring"""
 function remove_clifford(circuit::Circuit)
-    validate_circuit(circuit)
-    for index in find_variant_indices(circuit,Measurement)
+    for index in find_variant_indices(circuit, Measurement)
         circuit=traversal(circuit, conjugate_measurement, :left, 1, index-1)
     end
     return circuit

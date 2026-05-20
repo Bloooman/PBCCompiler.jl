@@ -140,15 +140,12 @@ ERROR: ArgumentError: conjugate_noncliff got unexpected variant: Measurement
 ```
 """
 function conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    if !isa_variant(op2, CircuitOp.ExpEighPiPauli)
-        throw(ArgumentError("conjugate_noncliff got unexpected variant: $(variant_name(op2))"))
-    end
-    conjugated_op = @match op1 begin
-        CircuitOp.ExpHalfPiPauli() => begin
+    conjugated_op = @match (op1, op2) begin
+        (CircuitOp.ExpHalfPiPauli(), CircuitOp.ExpEighPiPauli()) => begin
             (new_p, new_q) = conjugated_by_ExpHalfPiPauli(op1,op2)
             CircuitOp.ExpEighPiPauli(new_p, new_q)
         end
-        CircuitOp.ExpQuatPiPauli() => begin
+        (CircuitOp.ExpQuatPiPauli(), CircuitOp.ExpEighPiPauli()) => begin
             (new_p, new_q) = conjugated_by_ExpQuatPiPauli(op1,op2)
             CircuitOp.ExpEighPiPauli(new_p, new_q)
         end
@@ -183,21 +180,18 @@ ERROR: ArgumentError: conjugate_measurement got unexpected variant: ExpEighPiPau
 ```
 """
 function conjugate_measurement(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    if !isa_variant(op2, CircuitOp.Measurement)
-        throw(ArgumentError("conjugate_measurement got unexpected variant: $(variant_name(op2))"))
-    else
-        b=op2.bit
-        conjugated_op = @match op1 begin
-            CircuitOp.ExpHalfPiPauli() => begin
-                (new_p, new_q) = conjugated_by_ExpHalfPiPauli(op1,op2)
-                CircuitOp.Measurement(new_p, b, new_q)
-            end
-            CircuitOp.ExpQuatPiPauli() => begin
-                (new_p, new_q) = conjugated_by_ExpQuatPiPauli(op1,op2)
-                CircuitOp.Measurement(new_p, b, new_q)
-            end
-            _=> nothing
+    conjugated_op = @match (op1, op2) begin
+        (CircuitOp.ExpHalfPiPauli(), CircuitOp.Measurement()) => begin
+            b=op2.bit
+            (new_p, new_q) = conjugated_by_ExpHalfPiPauli(op1,op2)
+            CircuitOp.Measurement(new_p, b, new_q)
         end
+        (CircuitOp.ExpQuatPiPauli(), CircuitOp.Measurement()) => begin
+            b=op2.bit
+            (new_p, new_q) = conjugated_by_ExpQuatPiPauli(op1,op2)
+            CircuitOp.Measurement(new_p, b, new_q)
+        end
+        _=> nothing
     end
     return conjugated_op===nothing ? nothing : (conjugated_op,op1)
 end
