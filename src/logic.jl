@@ -31,10 +31,10 @@ function get_CompState(circuit::Circuit, input_state::Stabilizer, dummy::Bool=fa
     num_magic=length(magicqubits)
     @debug "Number of Magic qubits" num_magic _group=:api
     magicstate = num_magic==0 || dummy ? nothing : create_magic_state(num_magic)
-    num_bits=_get_bit_number(circuit)
+    num_bits=get_bit_number(circuit)
     MeasRes=Vector{MeasurementResult}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    stabilzier_group=_make_stabilizer_list(input_state, circuit)
+    stabilzier_group=make_stabilizer_list(input_state, circuit)
     ms=MemoryState(pauliqubits, magicqubits, MeasRes, stabilzier_group, magicstate, creg)
     cs=ComputerState(circuit, 1, ms, dummy)
     @debug("Initial Circuit: \n$(join(cs.circuit, "\n"))")
