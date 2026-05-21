@@ -76,7 +76,7 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
     ms=compstate.memory_state
     s=ms.StabilizerGroup
     num_qubits = get_circuit_width(compstate.circuit)
-    MagicQubits = ms.magic_qubits
+    magicqubits = collect(num_qubits-compstate.num_gadgets+1:num_qubits)
     quantum_state = ms.quantum_memory
     @debug "Current quantum memory holds" quantum_state _group=:api
     len=length(s)
@@ -94,7 +94,7 @@ function get_measurement_result(compstate::ComputerState, op::CircuitOp.Type)
                 elseif  quantum_state === nothing
                     throw(ArgumentError("Magic State not initiated"))
                 else
-                    real_p=op.pauli[MagicQubits]
+                    real_p=op.pauli[magicqubits]
                     (quantum_state, result) = projectrand!(quantum_state, real_p)
                     return (quantum_result(op.pauli, Bool(result>>1)),projection[2],quantum_state)
                 end
