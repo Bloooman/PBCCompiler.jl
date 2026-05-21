@@ -21,21 +21,24 @@ function preprocess_circuit(circuit::Circuit)
 end
 
 """Get initial ComputerState using input circuit and input state"""
-function get_CompState(circuit::Circuit, input_state::Stabilizer, dummy::Bool=false)
+function get_CompState(circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing, dummy::Bool=false)
     num_pauli_qubits=get_circuit_width(circuit)
-    pauliqubits=Int[1:num_pauli_qubits;]
+    if isnothing(input_state)
+        state=Stabilizer(one(Stabilizer, num_pauli_qubits; basis=:Z))
+    else
+        state=input_state
+    end
     @debug "Number of pauliqubits" num_pauli_qubits _group=:api
     preprocess_circuit(circuit)
     @debug "Circuit after preprocessing: " circuit _group=:api
-    magicqubits=Int[num_pauli_qubits+1: get_circuit_width(circuit);]
-    num_magic=length(magicqubits)
-    @debug "Number of Magic qubits" num_magic _group=:api
-    magicstate = num_magic==0 || dummy ? nothing : create_magic_state(num_magic)
+    stabilzier_group=make_stabilizer_list(state, circuit)
+    num_gadgets=size(stabilzier_group)[2]-num_pauli_qubits
+    @debug "Number of Magic qubits" num_gadgets _group=:api
+    magicstate = num_gadgets==0 || dummy ? nothing : create_magic_state(num_gadgets)
     num_bits=get_bit_number(circuit)
     MeasRes=Vector{MeasurementResult}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    stabilzier_group=make_stabilizer_list(input_state, circuit)
-    ms=MemoryState(pauliqubits, magicqubits, MeasRes, stabilzier_group, magicstate, creg)
+    ms=MemoryState(MeasRes, stabilzier_group, magicstate, creg)
     cs=ComputerState(circuit, 1, ms, dummy)
     @debug("Initial Circuit: \n$(join(cs.circuit, "\n"))")
     @debug("The initial quantum memory holds $magicstate")
@@ -68,7 +71,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
             paulistring=embed(size(ms.StabilizerGroup)[2], meas_i.qubits, meas_i.pauli)
             a_stabilizer= Stabilizer([paulistring])
             StabilizerGroup=vcat(ms.StabilizerGroup,a_stabilizer)
-            ms=MemoryState(ms.pauli_qubits, ms.magic_qubits, ms.measurement_results, StabilizerGroup,quantum_state, ms.classical_register)
+            ms=MemoryState(ms.measurement_results, StabilizerGroup,quantum_state, ms.classical_register)
         end
         ClassicalRandomRes() => begin
             @debug "This measurement outputs Classical Random Result" _group=:api
@@ -85,7 +88,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
 end
 
 """Run compute/compile with provided circuit and input state(described by stabilizer group)"""
-function run(input_circuit::Circuit, input_state::Stabilizer, dummy::Bool=false)
+function run(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing, dummy::Bool=false)
     # run preprocessing
     # prepare ComputerState
     validate_circuit(input_circuit)
@@ -97,8 +100,6 @@ function run(input_circuit::Circuit, input_state::Stabilizer, dummy::Bool=false)
     end _group=:api
     validate_input(input_circuit,input_state)
     cs = get_CompState(input_circuit, input_state, dummy)
-    @debug "Number of pauli qubits:" cs.memory_state.pauli_qubits _group=:api
-    @debug "Number of magic qubits:" cs.memory_state.magic_qubits _group=:api
     len=length(cs.memory_state.classical_register)
     while true && !isempty(cs.circuit)
         @debug "Working on $(cs.instruction_pointer) th PPM" _group=:api
