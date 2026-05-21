@@ -93,6 +93,10 @@ quantum_result(p::PauliOperator, m::Union{Bool,Nothing}) = MeasurementResult(p, 
 
 """Struct that contains information describing current quantum state"""
 struct MemoryState
+    """Vector that contains index of all data qubits that hold circuit input"""
+    pauli_qubits::Vector{Int}
+    """Vector that contains index of all qubits that hold magic states"""
+    magic_qubits::Vector{Int}
     """Vector that holds all MeasurementResult"""
     measurement_results::Vector{MeasurementResult}
     """Stabilizer object that describes current quantum state"""
@@ -149,13 +153,9 @@ Pretty-print the first four fields of `result.memory_state`:
 """
 function Base.show(io::IO, result::ComputerState)
     ms = result.memory_state
-    num_qubits = get_circuit_width(result.circuit)
-    quantum_state = ms.quantum_memory
-    num_qubits_QPU = nqubits(quantum_state)
-    QPU_qubit=collect(num_qubits_QPU: num_qubits)
     println(io, "ComputerState")
-    """println(io, "  Pauli Qubits:    ", ms.pauli_qubits)
-    println(io, "  Magic Qubits:    ", ms.magic_qubits)"""
+    println(io, "  Pauli Qubits:    ", ms.pauli_qubits)
+    println(io, "  Magic Qubits:    ", ms.magic_qubits)
     if !isdefined(ms, :measurement_results)
         println(io, "  Measurements: undefined")
         println(io, "  Quantum Measurement Results: undefined")
@@ -178,7 +178,7 @@ function Base.show(io::IO, result::ComputerState)
         println(io, "  Quantum Measurement Results ($(length(quantum))):")
         for (j, i) in enumerate(quantum)
             m = ms.measurement_results[i]
-            println(io, "    [$j] ", _magic_pauli_str(m.pauli, QPU_qubit),
+            println(io, "    [$j] ", _magic_pauli_str(m.pauli, ms.magic_qubits),
                         "  →  ", _bool_str(m.result))
         end
     end

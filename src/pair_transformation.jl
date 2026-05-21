@@ -136,6 +136,7 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 julia> M_Z = PBCCompiler.Measurement(P"Z", 1, [2]);
 
 julia> PBCCompiler.conjugate_noncliff(op1, M_Z)
+ERROR: ArgumentError: conjugate_noncliff got unexpected variant: Measurement
 ```
 """
 function conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type)
@@ -175,6 +176,7 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 julia> op2 = PBCCompiler.ExpEighPiPauli(P"ZXY",[3, 1, 2]);
 
 julia> PBCCompiler.conjugate_measurement(op1, op2)
+ERROR: ArgumentError: conjugate_measurement got unexpected variant: ExpEighPiPauli
 ```
 """
 function conjugate_measurement(op1::CircuitOp.Type, op2::CircuitOp.Type)
