@@ -6,7 +6,7 @@ using PBCCompiler: Circuit, CircuitOp, affectedqubits
 using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_graph, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_graph, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition, plot_hyperedge_frequency
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -778,7 +778,7 @@ function plot_hypergraph_partition(h::KaHyPar.HyperGraph, parts::Vector{Int64}):
     end
     pos = _partition_layout(n, m, edges, parts)
     fig = Figure(size = (800, 600))
-    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph Partition (k=$(maximum(parts)+1))")
+    ax  = Axis(fig[1, 1], aspect = DataAspect(), title = "Hypergraph Partition (number of partitions=$(maximum(parts)+1))")
     hidedecorations!(ax)
     hidespines!(ax)
     for (ci, p) in enumerate(sort(unique(parts)))
@@ -805,6 +805,46 @@ function plot_hypergraph_partition(h::KaHyPar.HyperGraph, parts::Vector{Int64}):
             MarkerElement(marker = :diamond, color = :darkorange, strokecolor = :white, strokewidth = 1, markersize = 14)],
            ["Vertex", "Hyperedge"];
            tellheight = false, tellwidth = false, halign = :right, valign = :top, margin = (10, 10, 10, 10))
+    return fig
+end
+
+"""
+    plot_hyperedge_frequency(freq::Dict{Vector{Int}, Float64}) -> Figure
+
+Visualize hyperedge frequency as a two-panel figure: a bar chart of frequencies on top
+and an incidence heatmap (hyperedge × vertex) below, sorted by descending frequency.
+
+# Arguments
+- `freq`: mapping from sorted 1-indexed vertex vectors to their fractional frequency,
+  as returned by normalizing `hyperedge_frequency`
+
+# Returns
+A `CairoMakie.Figure` with the two linked panels.
+"""
+function plot_hyperedge_frequency(freq::Dict{Vector{Int}, Float64})::Figure
+    sorted = sort(collect(freq), by = x -> x[2], rev = true)
+    edges  = first.(sorted)
+    freqs  = last.(sorted)
+    n_e    = length(edges)
+    n_v    = maximum(maximum.(edges))
+
+    mat = zeros(n_e, n_v)
+    for (j, edge) in enumerate(edges)
+        for v in edge
+            mat[j, v] = 1.0
+        end
+    end
+
+    fig    = Figure(size = (900, 400))
+    ax_bar = Axis(fig[1, 1], ylabel = "Frequency", xticklabelsvisible = false)
+    ax_hm  = Axis(fig[2, 1], xlabel = "Hyperedge rank", ylabel = "Vertex",
+                  yticks = (1:n_v, string.(1:n_v)))
+
+    barplot!(ax_bar, 1:n_e, freqs)
+    heatmap!(ax_hm, mat, colormap = :Blues)
+
+    linkxaxes!(ax_bar, ax_hm)
+    rowsize!(fig.layout, 1, Relative(0.25))
     return fig
 end
 

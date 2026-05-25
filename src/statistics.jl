@@ -284,3 +284,27 @@ Number of edges whose endpoints belong to different partition blocks.
 function edgecut(g::SimpleWeightedGraph, parts::Vector{Int64})::Int64
     return count(e -> parts[src(e)] != parts[dst(e)], edges(g))
 end
+##
+"""
+    hyperedge_frequency(hypergraphs::Vector{KaHyPar.HyperGraph}) -> Dict{Vector{Int}, Int}
+
+Count how many times each unique hyperedge appears across all input hypergraphs.
+
+# Arguments
+- `hypergraphs`: vector of `KaHyPar.HyperGraph` instances to analyze
+
+# Returns
+A `Dict` mapping each unique hyperedge — represented as a sorted, 1-indexed vertex
+vector — to its total occurrence count across all input hypergraphs.
+"""
+function hyperedge_frequency(hypergraphs::Vector{KaHyPar.HyperGraph})::Dict{Vector{Int}, Int}
+    counts = Dict{Vector{Int}, Int}()
+    for hg in hypergraphs
+        n_edges = length(hg.edge_indices) - 1
+        for j in 1:n_edges
+            verts = sort!(Int.(hg.hyperedges[hg.edge_indices[j]+1 : hg.edge_indices[j+1]]) .+ 1)
+            counts[verts] = get(counts, verts, 0) + 1
+        end
+    end
+    return counts
+end

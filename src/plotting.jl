@@ -152,3 +152,18 @@ each circle; hyperedge weights are displayed beside each diamond. A legend in th
 top-right corner distinguishes vertex and hyperedge node markers.
 """
 function plot_hypergraph_partition end
+
+"""
+    plot_hyperedge_frequency(freq::Dict{Vector{Int}, Float64}) -> Figure
+
+Visualize hyperedge frequency as a two-panel figure: a bar chart of frequencies on top
+and an incidence heatmap (hyperedge × vertex) below, sorted by descending frequency.
+
+# Arguments
+- `freq`: mapping from sorted 1-indexed vertex vectors to their fractional frequency,
+  as returned by normalizing `hyperedge_frequency`
+
+# Returns
+A `CairoMakie.Figure` with the two linked panels.
+"""
+function plot_hyperedge_frequency end
