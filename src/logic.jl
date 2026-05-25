@@ -89,7 +89,7 @@ function do_quantum_step(compstate::ComputerState, runtime::Type{<:QuantumRuntim
 end
 
 """Run compute/compile with provided circuit and input state(described by stabilizer group)"""
-function run(input_circuit::Circuit, input_state::Stabilizer, dummy::Bool=false)
+function run(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing; dummy::Bool=false)
     # run preprocessing
     # prepare ComputerState
     validate_circuit(input_circuit)
@@ -99,7 +99,9 @@ function run(input_circuit::Circuit, input_state::Stabilizer, dummy::Bool=false)
         "Circuit before preprocessing: \n$(join(circuit, "\n"))"
         "Initial number of qubits $num_q"
     end _group=:api
-    validate_input(input_circuit,input_state)
+    if !isnothing(input_state)
+        validate_input(input_circuit,input_state)
+    end
     cs = get_CompState(input_circuit, input_state, dummy)
     len=length(cs.memory_state.classical_register)
     while true && !isempty(cs.circuit)
