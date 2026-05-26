@@ -7,6 +7,7 @@ authors = ["Stefan Krastanov <stefan@krastanov.org>"]
 projects = ["benchmark", "docs"]
 
 [deps]
+Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 KaHyPar = "2a6221f6-aa48-11e9-3542-2d9e0ef01880"
@@ -28,6 +29,7 @@ PBCCompilerMakieExt = "Makie"
 PythonPlotExt = "PythonCall"
 
 [compat]
+Accessors = "0.1.44"
 Graphs = "1.14.0"
 JLD2 = "0.6.4"
 KaHyPar = "0.3.1"
