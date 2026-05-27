@@ -22,16 +22,14 @@ function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
 end
 
 """
-0x00 denotes +1 eigenvalue, 0x02 denotes -1 eigenvalue
-0 denotes +1 eigenvalue, 1 denotes -1 eigenvalue
-false denotes +1 eigenvalue, true denotes -1 eigenvalue
-"""
-
-"""
 Perform Joint Measurement on CircuitOp if it's a CircuitOp.Measurement
 Store results as corresponding measurement type: classical_random_result, classical_deterministic_result, quantum_result
 """
-function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::Int)
+function get_measurement_result(state::S, op::CircuitOp.Type) where S <: AbstractSimState
+    @debug "Measuring" op _group=:api
+    ms=state.memory_state
+    s=ms.stabilizer_group
+    num_qubits = get_circuit_width(state.circuit)
     len=length(s)
     projection = check_PPM(s, op, num_qubits)
     if projection === nothing
@@ -40,43 +38,47 @@ function get_measurement_result(s::Stabilizer, op::CircuitOp.Type, num_qubits::I
         if projection[3] === nothing
             if projection[2]<=len
                 result = rand(Bool[0,1])
-                return (classical_random_result(result),projection[2])
+                return (classical_random_result(op.pauli, result),projection[2])
             else
-                result = Bool(quantum_measurement(op)>>1)
-                return (quantum_result(result),projection[2])
+                (quantum_state, result) = quantum_measurement(state, op, num_qubits)
+                return (quantum_result(op.pauli, result),projection[2], quantum_state)
             end
         else
             result = Bool(projection[3]>>1)
-            return (classical_deterministic_result(result),projection[2])
+            return (classical_deterministic_result(op.pauli, result),projection[2])
         end
     end
 end
 
-function quantum_measurement(op::CircuitOp.Type)
-    print("Enter quantum measurement result: ")
-    measurement_result = parse(Int,readline())
-    if abs(measurement_result) != 1
-        throw(ArgumentError("Measurement Result can only be +1 or -1!!!"))
+"""Perform quantum measurement simulation on given state using QuantumClifford.jl backend"""
+function quantum_measurement(state::ComputerState, op::CircuitOp.Type, num_qubits::Int)
+    magicqubits = collect(num_qubits-state.num_gadgets+1:num_qubits)
+    quantum_state = state.memory_state.quantum_memory
+    if quantum_state === nothing
+        throw(ArgumentError("Magic State not initiated"))
     else
-        if measurement_result == 1
-            return 0x00
-        elseif measurement_result == -1
-            return 0x02
-        else
-            return nothing
-        end
+        real_p=op.pauli[magicqubits]
+        bit_result = projectrand!(quantum_state, real_p)[2]
+        result=Bool(bit_result>>1)
+        return (quantum_state, result)
     end
+end
+
+"""Perform quantum measurement simulation on given state using classical sampling according to weight determined by user named outcome_probs"""
+function quantum_measurement(state::DummyState, op::CircuitOp.Type, num_qubits::Int)
+    quantum_state = state.memory_state.quantum_memory
+    result = wsample([false,true],state.outcome_probs)
+    return (quantum_state,result)
 end
 
 """Resolve conditional circuit operations defined by CircuitOp.BitConditional"""
-function resolve_conditionals(compstate::ComputerState)
-    cs=compstate
-    circuit=cs.circuit
-    ms=cs.memory_state
+function resolve_conditionals(state::S) where S <: AbstractSimState
+    circuit=state.circuit
+    ms=state.memory_state
     creg=ms.classical_register
-    index=find_variant_indices(circuit,BitConditional)
+    index=find_BitConditional_indices(circuit)
     for i in index
-        @debug("Start resolving BitConditional at $i")
+        @debug("Start resoving BitConditional at $i")
         operation=circuit[i]
         control_bit=creg[operation.bit]
         if control_bit !== nothing
