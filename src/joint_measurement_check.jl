@@ -61,12 +61,6 @@ function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
 end
 
 """
-0x00 denotes +1 eigenvalue, 0x02 denotes -1 eigenvalue
-0 denotes +1 eigenvalue, 1 denotes -1 eigenvalue
-false denotes +1 eigenvalue, true denotes -1 eigenvalue
-"""
-
-"""
 Perform Joint Measurement on CircuitOp if it's a CircuitOp.Measurement
 Store results as corresponding measurement type: classical_random_result, classical_deterministic_result, quantum_result
 """
@@ -83,14 +77,14 @@ function get_measurement_result(state::S, op::CircuitOp.Type) where S <: Abstrac
         if projection[3] === nothing
             if projection[2]<=len
                 result = rand(Bool[0,1])
-                return (classical_random_result(op.pauli, result),projection[2])
+                return (classical_random_result(op.pauli, result), projection[2], state.memory_state.quantum_memory)
             else
                 (quantum_state, result) = quantum_measurement(state, op, num_qubits)
-                return (quantum_result(op.pauli, result),projection[2], quantum_state)
+                return (quantum_result(op.pauli, result), projection[2], quantum_state)
             end
         else
             result = Bool(projection[3]>>1)
-            return (classical_deterministic_result(op.pauli, result),projection[2])
+            return (classical_deterministic_result(op.pauli, result), projection[2], state.memory_state.quantum_memory)
         end
     end
 end
