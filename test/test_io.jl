@@ -3,8 +3,8 @@
 # test_parse.jl — unit tests for parse_input
 using JLD2
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional
-using PBCCompiler: MeasurementResultType, MeasurementResult, classical_deterministic_result, classical_random_result, quantum_result, MemoryState, SimState
-using .MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+using PBCCompiler: MeasurementResult, CompilerState, SimRuntime
+using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using Moshi.Data: isa_variant
 using QuantumClifford: @P_str, Stabilizer
 using PBCCompiler: parse_input, save
@@ -169,21 +169,21 @@ end
 
 ##
 # ---------------------------------------------------------------------------
-# Helper: construct a minimal SimState for testing
+# Helper: construct a minimal ComputerState for testing
 # ---------------------------------------------------------------------------
 function _make_state(;
     num_gadgets = 3,
-    meas_results   = MeasurementResult[
-                         classical_deterministic_result(P"XZ", true),
-                         classical_random_result(P"ZX", false),
-                         quantum_result(P"YI", nothing),
+    meas_results   = [
+                         ClassicalDetermRes(P"XZ", true),
+                         ClassicalRandomRes(P"ZX", false),
+                         QuantumRes(P"YI", nothing),
                      ],
     stab           = Stabilizer([P"XX", P"ZZ"]),
-    quantum_memory = nothing,
     classical_reg  = Union{Nothing,Bool}[true, false, nothing],
+    quantum_memory=nothing
 )
-    ms = MemoryState(meas_results, stab, quantum_memory, classical_reg)
-    return SimState(Circuit(),num_gadgets, 1, ms)
+    cs = CompilerState(meas_results, stab, classical_reg, Circuit(), num_gadgets, 1)
+    return SimRuntime(cs,quantum_memory)
 end
 
 # ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ end
 
 # Tests that the saved file contains exactly the four expected top-level keys
 # (`pauli_qubits`, `magic_qubits`, `measurement_results`, `stabilizer_group`)
-# and that `classical_register` — the fifth field of MemoryState — is absent.
+# and that `classical_register` — the fifth field of CompilerState — SimRuntime absent.
 @testset "save writes correct keys" begin
     path = tempname() * ".jld2"
     save(_make_state(), path)
@@ -223,15 +223,15 @@ end
     @test length(loaded) == 3
     @test loaded[1].pauli  == P"XZ"
     @test loaded[1].result == true
-    @test loaded[1].result_type == ClassicalDetermRes()
+    @test isa_variant(loaded[1],ClassicalDetermRes)
 
     @test loaded[2].pauli  == P"ZX"
     @test loaded[2].result == false
-    @test loaded[2].result_type == ClassicalRandomRes()
+    @test isa_variant(loaded[2],ClassicalRandomRes)
 
     @test loaded[3].pauli  == P"YI"
     @test loaded[3].result === nothing
-    @test loaded[3].result_type == QuantumRes()
+    @test isa_variant(loaded[3],QuantumRes)
     rm(path)
 end
 

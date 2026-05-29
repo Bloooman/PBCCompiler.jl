@@ -1,8 +1,10 @@
-#Helper functions to check PPMs in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+"""
+Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+"""
 ##
 using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, tensor_pow, apply!, pcT, projectrand!
 using Moshi.Data: variant_name, isa_variant
-using StatsBase
+using Accessors: @reset
 ##
 
 function validate_input(circuit::Circuit, input::Stabilizer)
@@ -11,16 +13,6 @@ function validate_input(circuit::Circuit, input::Stabilizer)
     else
         nothing
     end
-end
-
-function find_BitConditional_indices(circuit::Circuit)
-    BitConditional_indices = []
-    for (index, op) in enumerate(circuit)
-        if isa_variant(op, CircuitOp.BitConditional)
-            push!(BitConditional_indices, index)
-        end
-    end
-    return BitConditional_indices
 end
 
 function create_hadamard_basis_state(num_qubit::Int)
@@ -76,67 +68,77 @@ It returns
 - the index of the row where the non-commuting operator was (that row is now equal to pauli; its phase is not updated and for a faithful measurement simulation it needs to be randomized by the user)
 - a GeneralizedStabilizer represents the quantum state after measurement
 """
-function get_measurement_result(state::S, op::CircuitOp.Type) where S <: AbstractSimState
+function get_measurement_result(state::S, op::CircuitOp.Type) where S <: AbstractRuntime
     @debug "Measuring" op _group=:api
-    ms=state.memory_state
-    s=ms.stabilizer_group
-    num_qubits = get_circuit_width(state.circuit)
-    len=length(s)
-    projection = check_PPM(s, op, num_qubits)
+    check_list=state.compiler_state.stabilizer_group
+    num_qubits = get_circuit_width(state.compiler_state.circuit)
+    len=length(check_list)
+    projection = check_PPM(check_list, op, num_qubits)
     if projection === nothing
         return nothing
     else
         if projection[3] === nothing
             if projection[2]<=len
                 result = rand(Bool[0,1])
-                return (classical_random_result(op.pauli, result), projection[2], ms.quantum_memory)
+                @debug "This measurement outputs Classical Random Result" _group=:api
+                q_1=[1:get_circuit_width(state.compiler_state.circuit);]
+                Q_1=ExpQuatPiPauli(check_list[projection[2]],q_1)
+                p_2=(-1)^result*op.pauli
+                Q_2=ExpQuatPiPauli(p_2,op.qubits)
+                pushfirst!(state.compiler_state.circuit,Q_1,Q_2,Q_1)
+                preprocess_circuit(state.compiler_state.circuit)
+                return (ClassicalRandomRes(op.pauli, result), state)
             else
-                (quantum_state, result) = quantum_measurement(state, op, num_qubits)
-                return (quantum_result(op.pauli, result), projection[2], quantum_state)
+                (state, result) = quantum_measurement(state, op, num_qubits)
+                paulistring=embed(size(state.compiler_state.stabilizer_group)[2], op.qubits, op.pauli)
+                a_stabilizer= Stabilizer([paulistring])
+                check_list=vcat(check_list,a_stabilizer)
+                @reset state.compiler_state.stabilizer_group = check_list
+                return (QuantumRes(op.pauli, result), state)
             end
         else
             result = Bool(projection[3]>>1)
-            return (classical_deterministic_result(op.pauli, result), projection[2], ms.quantum_memory)
+            @debug "This measurement outputs Classical Deterministic Result" _group=:api
+            return (ClassicalDetermRes(op.pauli, result), state)
         end
     end
 end
 
 ##
 """
-    quantum_measurement(state::ComputerState, op::CircuitOp.Type, num_qubits::Int) -> Tuple{GeneralizedStabilizer, Bool}
+    quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
 Perform quantum measurement simulation on given state using QuantumClifford.jl backend
 """
-function quantum_measurement(state::SimState, op::CircuitOp.Type, num_qubits::Int)
-    magicqubits = collect(num_qubits-state.num_gadgets+1:num_qubits)
-    quantum_state = state.memory_state.quantum_memory
+function quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int)
+    magicqubits = collect(num_qubits-state.compiler_state.num_gadgets+1:num_qubits)
+    quantum_state = state.quantum_memory
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
     else
         real_p=op.pauli[magicqubits]
         bit_result = projectrand!(quantum_state, real_p)[2]
         result=Bool(bit_result>>1)
-        return (quantum_state, result)
+        state = @reset state.quantum_memory = quantum_state
+        return (state, result)
     end
 end
 
 """
-    quantum_measurement(state::DummyState, op::CircuitOp.Type, num_qubits::Int) -> Tuple{GeneralizedStabilizer, Bool}
+    quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
 Perform quantum measurement simulation on given state using classical sampling according to weight determined by user named outcome_probs
 """
-function quantum_measurement(state::DummyState, op::CircuitOp.Type, num_qubits::Int)
-    quantum_state = state.memory_state.quantum_memory
+function quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int)
     result = wsample([false,true],state.outcome_probs)
-    return (quantum_state,result)
+    return (state,result)
 end
 
 """Resolve conditional circuit operations defined by CircuitOp.BitConditional within circuit defined in state.circuit"""
-function resolve_conditionals(state::S) where S <: AbstractSimState
-    circuit=state.circuit
-    ms=state.memory_state
-    creg=ms.classical_register
-    index=find_BitConditional_indices(circuit)
+function resolve_conditionals(state::S) where S <: AbstractRuntime
+    circuit=state.compiler_state.circuit
+    creg=state.compiler_state.classical_register
+    index=find_variant_indices(circuit, BitConditional)
     for i in index
-        @debug("Start resolving BitConditional at $i")
+        @debug("Start resoving BitConditional at $i")
         operation=circuit[i]
         control_bit=creg[operation.bit]
         if control_bit !== nothing

@@ -1,5 +1,5 @@
 using QuantumClifford: PauliOperator, @P_str, Stabilizer, GeneralizedStabilizer
-using Moshi.Data: @data
+using Moshi.Data: @data, variant_name
 using Moshi.Derive: @derive
 ##
 """TODO docstring"""
@@ -60,88 +60,70 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
 ##
 
 """ADT representing different types of measurement result"""
-@data MeasurementResultType begin
+@data MeasurementResult begin
     """Denoting measurement results that classically determined by a coin flip"""
-    ClassicalDetermRes
+    struct ClassicalDetermRes
+        """Corresponding Pauli String of Measurement"""
+        pauli::PauliOperator
+        """Single bit measurement result in boolean"""
+        result::Union{Bool,Nothing}
+    end
     """Denoting measurement results that are classically determined by stored eigenvalues of stabilizers"""
-    ClassicalRandomRes
+    struct ClassicalRandomRes
+        """Corresponding Pauli String of Measurement"""
+        pauli::PauliOperator
+        """Single bit measurement result in boolean"""
+        result::Union{Bool,Nothing}
+    end
     """Denoting measurement results that require performing actual quantum measurement"""
-    QuantumRes
+    struct QuantumRes
+        """Corresponding Pauli String of Measurement"""
+        pauli::PauliOperator
+        """Single bit measurement result in boolean"""
+        result::Union{Bool,Nothing}
+    end
 end
 
-using .MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 
-"""Struct holding measurement result value and its type"""
-struct MeasurementResult
-    """Corresponding Pauli String of Measurement"""
-    pauli::PauliOperator
-    """Single bit measurement result in boolean"""
-    result::Union{Bool,Nothing}
-    """Measurement result type of this result (ClassicalDetermRes, ClassicalRandomRes, QuantumRes)"""
-    result_type::MeasurementResultType.Type
-end
+@derive MeasurementResult[Hash, Eq, Show]
 
-@derive MeasurementResultType[Hash, Eq, Show]
-
-"""TODO docstring"""
-classical_deterministic_result(p::PauliOperator, m::Union{Bool,Nothing}) = MeasurementResult(p, m, ClassicalDetermRes())
-"""TODO docstring"""
-classical_random_result(p::PauliOperator, m::Union{Bool,Nothing}) = MeasurementResult(p, m, ClassicalRandomRes())
-"""TODO docstring"""
-quantum_result(p::PauliOperator, m::Union{Bool,Nothing}) = MeasurementResult(p, m, QuantumRes())
-
-
-"""Struct that contains information describing current quantum state"""
-struct MemoryState
+"""Struct that contains information describing current compiler state"""
+struct CompilerState
     """Vector that holds all MeasurementResult"""
-    measurement_results::Vector{MeasurementResult}
+    measurement_results::Vector{MeasurementResult.Type}
     """Stabilizer object that describes current quantum state"""
     stabilizer_group::Stabilizer
-    """GeneralizedStabilizer object holding current quantum state within quantum computer"""
-    quantum_memory::Union{GeneralizedStabilizer, Nothing}
     """Vector that holds all classical bits storing corresponding measurement results"""
     classical_register::Vector{Union{Nothing,Bool}}
-end
-
-"""Abstract base type for simulator execution states."""
-abstract type AbstractSimState end
-
-"""Execution state for real backend simulation."""
-struct SimState <: AbstractSimState
     """Contain current circuit object"""
     circuit::Circuit
     """Number of gadgets inserted to replace nonclifford circuit operations"""
     num_gadgets::Int
     """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
-    """Contain current quantum state"""
-    memory_state::MemoryState
+end
+##
+abstract type AbstractRuntime end
+
+struct SimRuntime <: AbstractRuntime
+    """Contain current compiler state"""
+    compiler_state::CompilerState
+    """GeneralizedStabilizer object holding current quantum state within quantum computer"""
+    quantum_memory::Union{GeneralizedStabilizer, Nothing}
 end
 
-"""Execution state for dummy simulation. No real backend is contacted."""
-struct DummyState <: AbstractSimState
-    """Contain current circuit object"""
-    circuit::Circuit
-    """Number of gadgets inserted to replace nonclifford circuit operations"""
-    num_gadgets::Int
-    """Denote the Pauli Product Measurement that is being processed"""
-    instruction_pointer::Int
-    """Contain current quantum state"""
-    memory_state::MemoryState
+struct DummyRuntime <: AbstractRuntime
+    """Contain current compiler state"""
+    compiler_state::CompilerState
     """Weight vector describes sampling probability between +1 and -1 measurement results"""
     outcome_probs::Vector{Int}
 end
 ##
-"""TODO docstring"""
-abstract type QuantumRuntime end
-
-"""TODO docstring -- all measurements return `nothing` and classically-trackable states are set as if result was `false`."""
-struct MockRuntime <: QuantumRuntime end
-##
 function _result_type_str(t)
-    t == ClassicalDetermRes() && return "ClassicalDeterministic"
-    t == ClassicalRandomRes() && return "ClassicalRandom"
-    t == QuantumRes()         && return "Quantum"
+    t == :ClassicalDetermRes && return "ClassicalDeterministic"
+    t == :ClassicalRandomRes && return "ClassicalRandom"
+    t == :QuantumRes         && return "Quantum"
     return string(t)
 end
 
@@ -163,37 +145,37 @@ end
 Pretty-print the first four fields of `result.memory_state`:
 `pauli_qubits`, `magic_qubits`, `measurement_results`, and `StabilizerGroup`.
 """
-function Base.show(io::IO, result::S) where S <: AbstractSimState
-    num_qubits = get_circuit_width(result.circuit)
-    magicqubits = collect(num_qubits-result.num_gadgets+1:num_qubits)
-    ms = result.memory_state
-    println(io, "ComputerState")
-    if !isdefined(ms, :measurement_results)
+function Base.show(io::IO, result::S) where S <: AbstractRuntime
+    num_qubits = get_circuit_width(result.compiler_state.circuit)
+    magicqubits = collect(num_qubits-result.compiler_state.num_gadgets+1:num_qubits)
+    cs = result.compiler_state
+    println(io, "Compilation Result")
+    if !isdefined(cs, :measurement_results)
         println(io, "  Measurements: undefined")
         println(io, "  Quantum Measurement Results: undefined")
     else
-        n = length(ms.measurement_results)
+        n = length(cs.measurement_results)
         println(io, "  Measurements ($n):")
         for i in 1:n
-            if !isassigned(ms.measurement_results, i)
+            if !isassigned(cs.measurement_results, i)
                 println(io, "    [$i] undefined")
                 continue
             end
-            m = ms.measurement_results[i]
+            m = cs.measurement_results[i]
             println(io, "    [$i] ", m.pauli,
                         "  →  ", _bool_str(m.result),
-                        "  (", _result_type_str(m.result_type), ")")
+                        "  (", _result_type_str(variant_name(m)), ")")
         end
-        quantum = filter(i -> isassigned(ms.measurement_results, i) &&
-                              ms.measurement_results[i].result_type == QuantumRes(),
+        quantum = filter(i -> isassigned(cs.measurement_results, i) &&
+                              isa_variant(cs.measurement_results[i], QuantumRes),
                          1:n)
         println(io, "  Quantum Measurement Results ($(length(quantum))):")
         for (j, i) in enumerate(quantum)
-            m = ms.measurement_results[i]
+            m = cs.measurement_results[i]
             println(io, "    [$j] ", _magic_pauli_str(m.pauli, magicqubits),
                         "  →  ", _bool_str(m.result))
         end
     end
     print(io, "  Stabilizer Group:\n")
-    show(io, ms.stabilizer_group)
+    show(io, cs.stabilizer_group)
 end
