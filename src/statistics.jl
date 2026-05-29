@@ -21,7 +21,7 @@ function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_s
     while i<num_shots
         circuit = copy(input_circuit)
         result_i=run(circuit, input_state)
-        register=result_i.memory_state.classical_register
+        register=result_i.compiler_state.classical_register
         final_measurement_results=register[1:num_bits]
         bit_str = join(Int.(final_measurement_results))
         index = parse(Int, bit_str; base=2) + 1
@@ -38,15 +38,15 @@ end
 Extract qubit interaction graph from resulted ComputerState
 
 When type is nothing(default), plot interaction graph among all qubits using all Pauli Product Measurement
-When type is a MeasurementResultType, plot interaction graph using only MeasurementResult of given type
+When type is a MeasurementResult, plot interaction graph using only MeasurementResult of given type
 When type is QuantumRes, plot interaction graph of magic qubits denoted in ComputerState only
 """
-function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
-    num_nodes=maximum(vcat(result.memory_state.pauli_qubits,result.memory_state.magic_qubits))
+function get_graph(result::S, type::Union{MeasurementResult.Type,Nothing}=nothing) where S <: AbstractRuntime
+    num_nodes=length(result.compiler_state.stabilizer_group[1])
     g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
     measurements = type === nothing ?
-        result.memory_state.measurement_results :
-        filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
+        result.compiler_state.measurement_results :
+        filter(mr -> isa_variant(mr, type), result.compiler_state.measurement_results)
     for m in measurements
         p=m.pauli
         for i in 1:length(p)
@@ -63,7 +63,7 @@ function get_graph(result::ComputerState, type::Union{MeasurementResultType.Type
         end
     end
     if type == QuantumRes()
-        for h in 1:length(result.memory_state.pauli_qubits)
+        for h in 1:length(1 - result.compiler_state.num_gadgets)
             rem_vertex!(g,1)
         end
     end
@@ -124,7 +124,7 @@ of each edge's weight across the input graphs.
 
 Edges absent from a graph in the list contribute weight 0 to the computation.
 """
-function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; type::Union{MeasurementResultType.Type,Nothing}=nothing, num_shots::Int=1000)
+function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; type::Union{MeasurementResult.Type,Nothing}=nothing, num_shots::Int=1000)
     graphs =  Vector{SimpleWeightedGraph}(undef, num_shots)
     i=1
     while i<num_shots+1
@@ -154,13 +154,13 @@ end
 Extract qubit interaction hypergraph from resulted ComputerState.
 
 When type is nothing(default), plot interaction hypergraph among all qubits using all Pauli Product Measurement
-When type is a MeasurementResultType, plot interaction hypergraph using only MeasurementResult of given type
+When type is a MeasurementResult, plot interaction hypergraph using only MeasurementResult of given type
 When type is QuantumRes, plot interaction hypergraph of magic qubits denoted in ComputerState only
 """
-function get_hypergraph(result::ComputerState, type::Union{MeasurementResultType.Type,Nothing}=nothing)
+function get_hypergraph(result::S, type::Union{MeasurementResult.Type,Nothing}=nothing) where S <: AbstractRuntime
         measurements = type === nothing ?
-    result.memory_state.measurement_results :
-    filter(mr -> mr.result_type == type, result.memory_state.measurement_results)
+    result.compiler_state.measurement_results :
+    filter(mr -> isa_variant(mr, type), result.compiler_state.measurement_results)
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
