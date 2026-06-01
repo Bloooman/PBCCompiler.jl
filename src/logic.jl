@@ -89,7 +89,7 @@ Run compute/compile with provided circuit and input state(described by stabilize
 function run(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing; dummy::Bool=false, outcome_probs::Vector{Int}=[1,1])
     state = get_state(input_circuit, input_state; dummy=dummy, outcome_probs=outcome_probs)
     len=length(state.compiler_state.classical_register)
-    while true && !isempty(state.compiler_state.circuit)
+    while !isempty(state.compiler_state.circuit)
         @debug "Working on $(state.compiler_state.instruction_pointer) th PPM" _group=:api
         resolve_conditionals(state)
         state=do_quantum_step(state)
