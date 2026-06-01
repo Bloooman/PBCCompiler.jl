@@ -108,7 +108,15 @@ function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
 end
 
 ##
-"""Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4."""
+"""
+    remove_pauliconditional(circuit::Circuit)->Nothing
+
+Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4.
+
+**Kernel class:** expanding transformation (1→3)
+**Traversal:** inline — traversal and kernel logic are co-located in this
+function, mutates in place.
+"""
 function remove_pauliconditional(circuit::Circuit)
     indices=find_variant_indices(circuit,PauliConditional)
     for i in reverse(indices)
@@ -125,7 +133,13 @@ function remove_pauliconditional(circuit::Circuit)
     end
 end
 
-"""TODO docstring"""
+"""
+    group_nonclifford(circuit::Circuit)->nothing
+
+**Kernel class:** pair transformation (2→2)
+**Traversal:** `traversal` — iterates over consecutive gate pairs,
+mutates in place.
+"""
 function group_nonclifford(circuit::Circuit)
     if find_variant_indices(circuit,ExpEighPiPauli) != []
         for index in find_variant_indices(circuit,ExpEighPiPauli)
@@ -134,14 +148,28 @@ function group_nonclifford(circuit::Circuit)
     end
 end
 
-"""Identifies and combines identical Pauli rotations:
-    For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
-    A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed."""
+"""
+    merge_ops(circuit::Circuit)->Nothing
+
+Identifies and combines identical Pauli rotations:
+For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
+A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed.
+
+**Kernel class:** pair transformation (2→2)
+**Traversal:** `traversal` — iterates over consecutive gate pairs,
+mutates in place.
+    """
 function merge_ops(circuit::Circuit)
     traversal(circuit,merge_rotations, :left, 1, :end)
 end
 
-"""TODO docstring"""
+"""
+    remove_clifford(circuit::Circuit)->Nothing
+
+**Kernel class:** pair transformation (2→2)
+**Traversal:** `traversal` — iterates over consecutive gate pairs,
+mutates in place.
+"""
 function remove_clifford(circuit::Circuit)
     for index in find_variant_indices(circuit, Measurement)
         circuit=traversal(circuit, conjugate_measurement, :left, 1, index-1)
@@ -149,7 +177,13 @@ function remove_clifford(circuit::Circuit)
     return circuit
 end
 
-"""TODO docstring"""
+"""
+    group_nonclifford(circuit::Circuit)->Nothing
+
+**Kernel class:** expanding transformation (1→4)
+**Traversal:** inline — traversal and kernel logic are co-located in this
+function, mutates in place.
+"""
 function remove_nonclifford(circuit::Circuit)
     indices=find_variant_indices(circuit,ExpEighPiPauli)
     num_input_qubit=get_circuit_width(circuit)
@@ -162,7 +196,12 @@ function remove_nonclifford(circuit::Circuit)
     end
 end
 
-"""TODO docstring"""
+"""
+    remove_post_measurement(circuit::Circuit) -> Nothing
+
+Removes all gates after last CircuitOp.Measurement. No traversal+kernel structure;
+operates directly on the underlying gate sequence.
+"""
 function remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
     index=maximum(find_variant_indices(circuit,Measurement))
