@@ -12,7 +12,7 @@ Get measurement result distribution of given input circuit and input state by ru
 
 Return calculated result distribution and raw result count
 """
-function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_shots::Int=1000)
+function get_distribution(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing, num_shots::Int=1000)
     num_bits = get_circuit_width(input_circuit)
     len = 2^num_bits
     distribution = zeros(Int, len)
@@ -33,20 +33,17 @@ function get_distribution(input_circuit::Circuit, input_state::Stabilizer, num_s
 end
 
 """
-    get_graph(result::ComputerState, type=nothing)
+    get_graph(result::S, type=nothing) where S <: AbstractRuntime
 
-Extract qubit interaction graph from resulted ComputerState
+Extract qubit interaction graph from result.compiler_state
 
-When type is nothing(default), plot interaction graph among all qubits using all Pauli Product Measurement
-When type is a MeasurementResult, plot interaction graph using only MeasurementResult of given type
-When type is QuantumRes, plot interaction graph of magic qubits denoted in ComputerState only
+When quantum_only is false, plot interaction hypergraph among all qubits using all Pauli Product Measurement
+When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
-function get_graph(result::S, type::Union{MeasurementResult.Type,Nothing}=nothing) where S <: AbstractRuntime
+function get_graph(result::S, quantum_only::Bool=false) where S <: AbstractRuntime
     num_nodes=length(result.compiler_state.stabilizer_group[1])
     g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
-    measurements = type === nothing ?
-        result.compiler_state.measurement_results :
-        filter(mr -> isa_variant(mr, type), result.compiler_state.measurement_results)
+    measurements = quantum_only ? result.compiler_state.measurement_results : filter(mr -> isa_variant(mr, QuantumRes), result.compiler_state.measurement_results)
     for m in measurements
         p=m.pauli
         for i in 1:length(p)
@@ -62,7 +59,7 @@ function get_graph(result::S, type::Union{MeasurementResult.Type,Nothing}=nothin
             end
         end
     end
-    if type == QuantumRes()
+    if quantum_only
         for h in 1:length(1 - result.compiler_state.num_gadgets)
             rem_vertex!(g,1)
         end
@@ -124,13 +121,13 @@ of each edge's weight across the input graphs.
 
 Edges absent from a graph in the list contribute weight 0 to the computation.
 """
-function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; type::Union{MeasurementResult.Type,Nothing}=nothing, num_shots::Int=1000)
+function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; quantum_only::Bool=false, num_shots::Int=1000)
     graphs =  Vector{SimpleWeightedGraph}(undef, num_shots)
     i=1
     while i<num_shots+1
         circuit = copy(input_circuit)
         result_i=run(circuit, input_state)
-        graphs[i]=get_graph(result_i, type)
+        graphs[i]=get_graph(result_i, quantum_only)
         i+=1
     end
     n = nv(first(graphs))
@@ -149,18 +146,15 @@ function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; type:
 end
 ##
 """
-    get_hypergraph(result::ComputerState, type=nothing)
+    get_hypergraph(result::S, quantum_only=false) where S<:AbstractRuntime
 
-Extract qubit interaction hypergraph from resulted ComputerState.
+Extract qubit interaction hypergraph from resulted CompilerState.
 
-When type is nothing(default), plot interaction hypergraph among all qubits using all Pauli Product Measurement
-When type is a MeasurementResult, plot interaction hypergraph using only MeasurementResult of given type
-When type is QuantumRes, plot interaction hypergraph of magic qubits denoted in ComputerState only
+When quantum_only is false, plot interaction hypergraph among all qubits using all Pauli Product Measurement
+When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
-function get_hypergraph(result::S, type::Union{MeasurementResult.Type,Nothing}=nothing) where S <: AbstractRuntime
-        measurements = type === nothing ?
-    result.compiler_state.measurement_results :
-    filter(mr -> isa_variant(mr, type), result.compiler_state.measurement_results)
+function get_hypergraph(result::S, quantum_only::Bool=false) where S <: AbstractRuntime
+    measurements = quantum_only ? result.compiler_state.measurement_results : filter(mr -> isa_variant(mr, QuantumRes), result.compiler_state.measurement_results)
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
