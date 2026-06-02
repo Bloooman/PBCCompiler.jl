@@ -13,11 +13,6 @@ const P = typeof(P"XYZ")
         bit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
-    struct Pauli
-        pauli::P
-        qubits::Vector{Int}
-    end
     """Perform Pauli Product Rotation(PPR) in the form of Pφ = exp(−iP φ), where P is pauli string, φ is an angle Perform pi/2 PPR on qubits denoted in Vector qubits"""
     struct ExpHalfPiPauli
         pauli::P
@@ -31,11 +26,6 @@ const P = typeof(P"XYZ")
     """Perform pi/8 PPR on qubits denoted in Vector qubits"""
     struct ExpEighPiPauli
         pauli::P
-        qubits::Vector{Int}
-    end
-    """TODO docstring"""
-    struct PrepMagic
-        qubit::Int
         qubits::Vector{Int}
     end
     """Perform a (pi/2) Pauli rotation (defined by target_pauli) on the target qubits, conditional on the control qubits falling into the -1 eigenspace of control_pauli"""
