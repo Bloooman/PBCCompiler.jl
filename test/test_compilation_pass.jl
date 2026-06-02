@@ -1,9 +1,12 @@
 @testitem "Preprocess" tags=[:preprocess] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit
-using QuantumClifford: @P_str
+using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run
+using PBCCompiler.MeasurementResult
+using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+using QuantumClifford: @P_str, @S_str
 using Moshi.Derive: @derive
+using Moshi.Match: isa_variant
 
 @derive CircuitOp[Eq, Show]
 
@@ -38,6 +41,29 @@ end
     @test circuit[4] == BitConditional((ExpHalfPiPauli(P"XZ", [1, 2])), 4)
     @test circuit[5] == Measurement(P"X_", 1, [1, 2])
     @test circuit[6] == Measurement(P"XZ", 2, [1, 2])
+end
+
+
+@testset "Compute/Compile Correctness" begin
+    circuit = Circuit([
+    PauliConditional(P"X", [1], P"Z", [2]),
+    ExpHalfPiPauli(P"YZ", [1, 2]),
+    ExpEighPiPauli(P"Z", [2]),
+    Measurement(P"Z", 1, [1]),
+    Measurement(P"Z", 2, [2])
+    ])
+
+    result=run(circuit)
+    meas_list=result.compiler_state.measurement_results
+    stab=result.compiler_state.stabilizer_group
+
+    @test isa_variant(meas_list[1], QuantumRes)
+    @test isa_variant(meas_list[2], ClassicalRandomRes)
+    @test isa_variant(meas_list[3], ClassicalDetermRes)
+    @test isa_variant(meas_list[4], ClassicalDetermRes)
+    @test stab == S"+Z__
+                    +_Z_
+                    +_ZZ"
 end
 
 end
