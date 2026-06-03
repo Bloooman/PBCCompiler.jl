@@ -138,7 +138,7 @@ function resolve_conditionals(state::S) where S <: AbstractRuntime
     creg=state.compiler_state.classical_register
     index=find_variant_indices(circuit, BitConditional)
     for i in index
-        @debug("Start resoving BitConditional at $i")
+        @debug("Start resolving BitConditional at $i")
         operation=circuit[i]
         control_bit=creg[operation.bit]
         if control_bit !== nothing
