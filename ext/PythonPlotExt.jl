@@ -67,13 +67,32 @@ function circuitplot_qiskit(circuit::Circuit)
     pauli_label(p::P) = String(pauli_chars(p))
     py0(q::Vector{Int}) = pylist(q .- 1)  # Julia 1-based → Python 0-based
 
-    # Strip leading/trailing identity from both Pauli chars and qubit list
-    function trim_pauli(p::P, qubits::Vector{Int})
+    # Return only the non-identity Pauli chars and their corresponding qubits
+    function active_pauli_qubits(p::P, qubits::Vector{Int})
         chars = pauli_chars(p)
-        lo = findfirst(!=('I'), chars)
-        hi = findlast(!=('I'), chars)
-        isnothing(lo) && return (String(chars), qubits)
-        return (String(chars[lo:hi]), qubits[lo:hi])
+        mask = findall(!=('I'), chars)
+        isempty(mask) && return (String(chars), qubits)
+        return (String(chars[mask]), qubits[mask])
+    end
+
+    # Return the set of active (non-identity) qubit indices for an op
+    function op_qubits(op)
+        @match op begin
+            CircuitOp.Measurement(; pauli, qubits) =>
+                Set((active_pauli_qubits(pauli, qubits))[2])
+            CircuitOp.ExpHalfPiPauli(; pauli, qubits) =>
+                Set((active_pauli_qubits(pauli, qubits))[2])
+            CircuitOp.ExpQuatPiPauli(; pauli, qubits) =>
+                Set((active_pauli_qubits(pauli, qubits))[2])
+            CircuitOp.ExpEighPiPauli(; pauli, qubits) =>
+                Set((active_pauli_qubits(pauli, qubits))[2])
+            CircuitOp.PauliConditional(; control_pauli, control_qubits, target_pauli, target_qubits) => begin
+                (_, aq_ctrl) = active_pauli_qubits(control_pauli, control_qubits)
+                (_, aq_tgt)  = active_pauli_qubits(target_pauli, target_qubits)
+                Set(vcat(aq_ctrl, aq_tgt))
+            end
+            CircuitOp.BitConditional(; op=inner) => op_qubits(inner)
+        end
     end
 
     half_pi_names    = Set{String}()
@@ -85,30 +104,33 @@ function circuitplot_qiskit(circuit::Circuit)
     function make_gate(op)
         @match op begin
             CircuitOp.ExpHalfPiPauli(; pauli, qubits) => begin
-                (label, active_q) = trim_pauli(pauli, qubits)
+                (label, active_q) = active_pauli_qubits(pauli, qubits)
                 name = "\$R_{$(label)}\$\n\$\\pi/2\$"
                 push!(half_pi_names, name)
                 (Gate(name, length(active_q), pylist([])), active_q)
             end
             CircuitOp.ExpQuatPiPauli(; pauli, qubits) => begin
-                (label, active_q) = trim_pauli(pauli, qubits)
+                (label, active_q) = active_pauli_qubits(pauli, qubits)
                 name = "\$R_{$(label)}\$\n\$\\pi/4\$"
                 push!(quat_pi_names, name)
                 (Gate(name, length(active_q), pylist([])), active_q)
             end
             CircuitOp.ExpEighPiPauli(; pauli, qubits) => begin
-                (label, active_q) = trim_pauli(pauli, qubits)
+                (label, active_q) = active_pauli_qubits(pauli, qubits)
                 name = "\$R_{$(label)}\$\n\$\\pi/8\$"
                 push!(eigh_pi_names, name)
                 (Gate(name, length(active_q), pylist([])), active_q)
             end
             CircuitOp.Measurement(; pauli, bit, qubits) => begin
+                (_, active_q) = active_pauli_qubits(pauli, qubits)
                 name = "M[$(pauli_label(pauli))]→c$(bit)"
                 push!(meas_names, name)
-                (Gate(name, length(qubits), pylist([])), qubits)
+                (Gate(name, length(active_q), pylist([])), active_q)
             end
             CircuitOp.PauliConditional(; control_pauli, control_qubits, target_pauli, target_qubits) => begin
-                all_q = vcat(control_qubits, target_qubits)
+                (_, active_ctrl) = active_pauli_qubits(control_pauli, control_qubits)
+                (_, active_tgt)  = active_pauli_qubits(target_pauli, target_qubits)
+                all_q = vcat(active_ctrl, active_tgt)
                 name = "C($(pauli_label(control_pauli)))\n↓\nT($(pauli_label(target_pauli)))"
                 push!(pauli_cond_names, name)
                 (Gate(name, length(all_q), pylist([])), all_q)
@@ -119,16 +141,36 @@ function circuitplot_qiskit(circuit::Circuit)
         end
     end
 
+    # Greedy layer grouping: consecutive ops with no active-qubit overlap share a layer
+    layers = Vector{Vector{eltype(circuit)}}()
+    current_layer = eltype(circuit)[]
+    current_qubits = Set{Int}()
     for op in circuit
-        if isa_variant(op, CircuitOp.BitConditional)
-            (gate, q) = make_gate(op.op)
-            body = qc_mod.QuantumCircuit(length(q))
-            body.append(gate, pylist(collect(0:length(q)-1)))
-            if_op = IfElseOp((qc.clbits[op.bit - 1], pybool(true)), body, pybuiltins.None)
-            qc.append(if_op, py0(q))
+        qs = op_qubits(op)
+        if isempty(intersect(qs, current_qubits))
+            push!(current_layer, op)
+            union!(current_qubits, qs)
         else
-            (gate, q) = make_gate(op)
-            qc.append(gate, py0(q))
+            push!(layers, current_layer)
+            current_layer = [op]
+            current_qubits = qs
+        end
+    end
+    isempty(current_layer) || push!(layers, current_layer)
+
+    for (i, layer) in enumerate(layers)
+        i > 1 && qc.barrier()
+        for op in layer
+            if isa_variant(op, CircuitOp.BitConditional)
+                (gate, q) = make_gate(op.op)
+                body = qc_mod.QuantumCircuit(length(q))
+                body.append(gate, pylist(collect(0:length(q)-1)))
+                if_op = IfElseOp((qc.clbits[op.bit - 1], pybool(true)), body, pybuiltins.None)
+                qc.append(if_op, py0(q))
+            else
+                (gate, q) = make_gate(op)
+                qc.append(gate, py0(q))
+            end
         end
     end
 
@@ -150,7 +192,7 @@ function circuitplot_qiskit(circuit::Circuit)
     end
     style = pydict(Dict("displaycolor" => display_colors))
 
-    return qc.draw(output=pystr("mpl"), style=style)
+    return qc.draw(output=pystr("mpl"), style=style, plot_barriers=pybool(false))
 end
 
 end
