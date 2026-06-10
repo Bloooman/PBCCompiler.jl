@@ -302,3 +302,8 @@ function hyperedge_frequency(hypergraphs::Vector{KaHyPar.HyperGraph})::Dict{Vect
     end
     return counts
 end
+
+function num_nonclifford(circuit::Circuit)
+    num = length(find_variant_indices(circuit, ExpEighPiPauli))
+    return num
+end
