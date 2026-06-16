@@ -100,16 +100,63 @@ function _single_qubit_ops(gate::AbstractString, q::Int)::Vector{CircuitOp.Type}
 end
 
 """
-    save(result::ComputerState, filepath::String)
+    save(result::CompilerState, filepath::String)
 
-Save the first four fields of `result.memory_state` (`pauli_qubits`, `magic_qubits`,
-`measurement_results`, `stabilizer_group`) to a `.jld2` file at `filepath`.
+Save `measurement_results` and `stabilizer_group` from a `CompilerState` to a `.jld2` file.
+
+# Arguments
+- `result`: compiler state to serialize
+- `filepath`: destination path (should end in `.jld2`)
+
+# Returns
+Nothing.
 """
-function save(result::S, filepath::String) where S <: AbstractRuntime
-    cs = result.compiler_state
+function save(result::CompilerState, filepath::String)
     JLD2.jldsave(filepath;
-        measurement_results = cs.measurement_results,
-        stabilizer_group     = cs.stabilizer_group,
+        measurement_results = result.measurement_results,
+        stabilizer_group     = result.stabilizer_group,
+    )
+end
+
+"""
+    save(r::CompilationResult, filepath::String)
+
+Save all fields of a `CompilationResult` to a `.jld2` file at `filepath`.
+
+# Arguments
+- `r`: compilation result to serialize
+- `filepath`: destination path (should end in `.jld2`)
+
+# Returns
+Nothing.
+"""
+function save(r::CompilationResult, filepath::String)
+    JLD2.jldsave(filepath;
+        measurement_results = r.measurement_results,
+        QPU_workload        = r.QPU_workload,
+        stabilizer_group    = r.stabilizer_group,
+        QPUDuration         = r.QPUDuration,
+    )
+end
+
+"""
+    load(filepath::String) -> CompilationResult
+
+Load a `CompilationResult` from a `.jld2` file previously written by `save`.
+
+# Arguments
+- `filepath`: path to a `.jld2` file
+
+# Returns
+A `CompilationResult` reconstructed from the saved fields.
+"""
+function load(filepath::String)::CompilationResult
+    data = JLD2.load(filepath)
+    return CompilationResult(
+        data["measurement_results"],
+        data["QPU_workload"],
+        data["stabilizer_group"],
+        data["QPUDuration"],
     )
 end
 ##

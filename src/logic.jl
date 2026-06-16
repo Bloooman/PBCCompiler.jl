@@ -88,6 +88,20 @@ function do_quantum_step(state::CompilerState)
     @reset state.instruction_pointer = i+1
 end
 
+function to_result(state::CompilerState)
+    num_qubits = get_circuit_width(state.circuit)
+    quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
+    magicqubits = collect(num_qubits-length(quantum)+1:num_qubits)
+    qpu_load = Vector{MeasurementResult.Type}()
+    for i in quantum
+        p = i.pauli
+        r = i.result
+        load = QuantumRes(p[magicqubits], r)
+        push!(qpu_load, load)
+    end
+    result = CompilationResult(state.measurement_results, qpu_load, state.stabilizer_group, length(qpu_load))
+end
+
 """
     run(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing; dummy::Bool=false, outcome_probs::Vector{Int}=[1,1]) -> S where S <: AbstractRuntime
 
@@ -112,14 +126,5 @@ function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothi
         end
     end
     @debug "Compute/Compile Complete" _group=:api
-    pbc_circuit=[]
-    for i in 1:length(state.circuit)
-        op=state.circuit[i]
-        pauli=state.measurement_results[i].pauli
-        new_op=CircuitOp.Measurement(pauli,op.bit,op.qubits)
-        push!(pbc_circuit,new_op)
-
-    end
-    return @reset state.circuit = pbc_circuit
-    @debug "Result returned" _group=:api
+    result = to_result(state)
 end
