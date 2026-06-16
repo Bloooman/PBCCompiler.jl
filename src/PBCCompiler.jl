@@ -1,9 +1,9 @@
 module PBCCompiler
 
-using Moshi.Data: @data
+using Moshi.Data: @data, variant_name, isa_variant
 using Moshi.Match: @match
-using QuantumClifford: PauliOperator, @P_str
-
+using QuantumClifford: PauliOperator, @P_str, embed, comm, ⊗
+using Moshi.Derive: @derive
 ##
 
 """TODO docstring"""
@@ -11,7 +11,7 @@ const P = typeof(P"XYZ")
 
 """TODO docstring"""
 @data CircuitOp begin
-    """TODO docstring"""
+    """Measurement of pauli string P (ie., + XY) on qubits in vector at field "qubits" (ie.,[1,3]), measurement result is stored in classical bit denoted in "bit" """
     struct Measurement
         pauli::P
         bit::Int
@@ -22,17 +22,17 @@ const P = typeof(P"XYZ")
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform Pauli Product Rotation(PPR) in the form of Pφ = exp(−iP φ), where P is pauli string, φ is an angle Perform pi/2 PPR on qubits denoted in Vector qubits"""
     struct ExpHalfPiPauli
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform pi/4 PPR on qubits denoted in Vector qubits"""
     struct ExpQuatPiPauli
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform pi/8 PPR on qubits denoted in Vector qubits"""
     struct ExpEighPiPauli
         pauli::P
         qubits::Vector{Int}
@@ -42,7 +42,7 @@ const P = typeof(P"XYZ")
         qubit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Perform a (pi/2) Pauli rotation (defined by target_pauli) on the target qubits, conditional on the control qubits falling into the -1 eigenspace of control_pauli"""
     struct PauliConditional
         control_pauli::P
         control_qubits::Vector{Int}
@@ -56,6 +56,8 @@ const P = typeof(P"XYZ")
     end
 end
 
+@derive CircuitOp[Hash, Eq, Show]
+
 """TODO docstring"""
 const Circuit = Vector{CircuitOp.Type}
 
@@ -64,7 +66,7 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
 include("traversal.jl")
 include("affectedqubits.jl")
 include("plotting.jl")
-
+include("pair_transformation.jl")
 ##
 
 """TODO docstring"""
@@ -79,7 +81,11 @@ end
 
 ##
 
-"""TODO docstring"""
+"""
+Process a Clifford + T circuit into a Pauli Product circuit by appropriately commuting
+all Clifford gates past the nonClifford-gates and absorbing them in the Pauli Product Measurements.
+Then replace all nonClifford Pauli Product Rotations with gadgets.
+"""
 function preprocess_circuit(circuit::Circuit)
     remove_pauliconditional(circuit)
     commute_nonclifford_to_front(circuit)
@@ -111,23 +117,23 @@ end
 
 ##
 
-"""TODO docstring"""
+"""ADT representing different types of measurement result"""
 @data MeasurementResultType begin
-    """TODO docstring"""
+    """Denoting measurement results that are classically determined by stored eigenvalues of stabilizers"""
     ClassicalDetermRes
-    """TODO docstring"""
+    """Denoting measurement results that classically determined by a coin flip"""
     ClassicalRandomRes
-    """TODO docstring"""
+    """Denoting measurement results that require performing actual quantum measurement"""
     QuantumRes
 end
 
 using .MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 
-"""TODO docstring"""
+"""Struct holding measurement result value and its type"""
 struct MeasurementResult
-    """TODO docstring"""
+    """Single bit measurement result in boolean"""
     result::Union{Bool,Nothing}
-    """TODO docstring"""
+    """Measurement result type of this result (ClassicalDetermRes, ClassicalRandomRes, QuantumRes)"""
     result_type::MeasurementResultType.Type
 end
 
@@ -154,11 +160,11 @@ end
 
 """TODO docstring"""
 struct ComputerState
-    """TODO docstring"""
+    """Contain current circuit object"""
     circuit::Circuit
-    """TODO docstring"""
+    """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
-    """TODO docstring"""
+    """Contain current quantum state"""
     memory_state::MemoryState
 end
 
