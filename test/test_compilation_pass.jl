@@ -1,7 +1,7 @@
 @testitem "Preprocess" tags=[:preprocess] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime
+using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime, DummyRuntime
 using PBCCompiler.MeasurementResult
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using QuantumClifford: @P_str, @S_str
@@ -44,7 +44,7 @@ end
 end
 
 
-@testset "Compute/Compile Correctness" begin
+@testset "SimRuntime Correctness" begin
     circuit = Circuit([
     PauliConditional(P"X", [1], P"Z", [2]),
     ExpHalfPiPauli(P"YZ", [1, 2]),
@@ -54,6 +54,28 @@ end
     ])
 
     real_result=run(circuit, SimRuntime())
+    meas_list=real_result.measurement_results
+    stab=real_result.stabilizer_group
+
+    @test isa_variant(meas_list[1], QuantumRes)
+    @test isa_variant(meas_list[2], ClassicalRandomRes)
+    @test isa_variant(meas_list[3], ClassicalDetermRes)
+    @test isa_variant(meas_list[4], ClassicalDetermRes)
+    @test stab == S"+Z__
+                    +_Z_
+                    +_ZZ"
+end
+
+@testset "DummyRuntime Correctness" begin
+    circuit = Circuit([
+    PauliConditional(P"X", [1], P"Z", [2]),
+    ExpHalfPiPauli(P"YZ", [1, 2]),
+    ExpEighPiPauli(P"Z", [2]),
+    Measurement(P"Z", 1, [1]),
+    Measurement(P"Z", 2, [2])
+    ])
+
+    real_result=run(circuit, DummyRuntime())
     meas_list=real_result.measurement_results
     stab=real_result.stabilizer_group
 

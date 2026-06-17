@@ -57,8 +57,8 @@ function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::SimR
     num_pauli_qubits=get_circuit_width(input_circuit)
     circuit = copy(input_circuit)
     preprocess_circuit(circuit)
-    stabilizier_group=make_stabilizer_list(input_state, circuit)
-    num_gadgets=size(stabilizier_group)[2]-num_pauli_qubits
+    stabilizer_group=make_stabilizer_list(input_state, circuit)
+    num_gadgets=size(stabilizer_group)[2]-num_pauli_qubits
     quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
