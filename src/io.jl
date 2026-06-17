@@ -102,7 +102,10 @@ end
 """
     save(result::CompilerState, filepath::String)
 
-Save `measurement_results` and `stabilizer_group` from a `CompilerState` to a `.jld2` file.
+Save transient compiler state fields to a `.jld2` file for debugging.
+
+Saves `measurement_results`, `stabilizer_group`, `classical_register`, and
+`instruction_pointer`. Omits `circuit` (fixed input) and `runtime` (ADT).
 
 # Arguments
 - `result`: compiler state to serialize
@@ -113,8 +116,10 @@ Nothing.
 """
 function save(result::CompilerState, filepath::String)
     JLD2.jldsave(filepath;
-        measurement_results = result.measurement_results,
+        measurement_results  = result.measurement_results,
         stabilizer_group     = result.stabilizer_group,
+        classical_register   = result.classical_register,
+        instruction_pointer  = result.instruction_pointer,
     )
 end
 
