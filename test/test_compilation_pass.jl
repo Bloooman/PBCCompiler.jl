@@ -1,7 +1,7 @@
 @testitem "Preprocess" tags=[:preprocess] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run
+using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime
 using PBCCompiler.MeasurementResult
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using QuantumClifford: @P_str, @S_str
@@ -53,9 +53,9 @@ end
     Measurement(P"Z", 2, [2])
     ])
 
-    result=run(circuit)
-    meas_list=result.compiler_state.measurement_results
-    stab=result.compiler_state.stabilizer_group
+    real_result=run(circuit, SimRuntime())
+    meas_list=real_result.measurement_results
+    stab=real_result.stabilizer_group
 
     @test isa_variant(meas_list[1], QuantumRes)
     @test isa_variant(meas_list[2], ClassicalRandomRes)
