@@ -100,15 +100,157 @@ function _single_qubit_ops(gate::AbstractString, q::Int)::Vector{CircuitOp.Type}
 end
 
 """
-    save(result::ComputerState, filepath::String)
+    save(result::CompilerState, filepath::String)
 
-Save the first four fields of `result.memory_state` (`pauli_qubits`, `magic_qubits`,
-`measurement_results`, `stabilizer_group`) to a `.jld2` file at `filepath`.
+Save transient compiler state fields to a `.jld2` file for debugging.
+
+Saves `measurement_results`, `stabilizer_group`, `classical_register`, and
+`instruction_pointer`. Omits `circuit` (fixed input) and `runtime` (ADT).
+
+# Arguments
+- `result`: compiler state to serialize
+- `filepath`: destination path (should end in `.jld2`)
+
+# Returns
+Nothing.
 """
-function save(result::S, filepath::String) where S <: AbstractRuntime
-    cs = result.compiler_state
+function save(result::CompilerState, filepath::String)
     JLD2.jldsave(filepath;
-        measurement_results = cs.measurement_results,
-        stabilizer_group     = cs.stabilizer_group,
+        measurement_results  = result.measurement_results,
+        stabilizer_group     = result.stabilizer_group,
+        classical_register   = result.classical_register,
+        instruction_pointer  = result.instruction_pointer,
     )
+end
+
+"""
+    save(r::CompilationResult, filepath::String)
+
+Save all fields of a `CompilationResult` to a `.jld2` file at `filepath`.
+
+# Arguments
+- `r`: compilation result to serialize
+- `filepath`: destination path (should end in `.jld2`)
+
+# Returns
+Nothing.
+"""
+function save(r::CompilationResult, filepath::String)
+    JLD2.jldsave(filepath;
+        measurement_results = r.measurement_results,
+        QPU_workload        = r.QPU_workload,
+        stabilizer_group    = r.stabilizer_group,
+        QPUDuration         = r.QPUDuration,
+    )
+end
+
+"""
+    load(filepath::String) -> CompilationResult
+
+Load a `CompilationResult` from a `.jld2` file previously written by `save`.
+
+# Arguments
+- `filepath`: path to a `.jld2` file
+
+# Returns
+A `CompilationResult` reconstructed from the saved fields.
+"""
+function load(filepath::String)::CompilationResult
+    data = JLD2.load(filepath)
+    return CompilationResult(
+        data["measurement_results"],
+        data["QPU_workload"],
+        data["stabilizer_group"],
+        data["QPUDuration"],
+    )
+end
+##
+"""
+    parse_QuantumClifford(filepath::String) -> Vector{AbstractOperation}
+
+Read an OpenQASM 2.0 file and return a circuit as a vector of QuantumClifford
+operations. Supports Clifford+T gates: `x`, `y`, `z`, `h`, `cx`, `s`, `sdg`,
+`t`, `tdg`. Qubit indices are 1-based. T† is decomposed as T followed by S†.
+"""
+function parse_QuantumClifford(filepath::String)
+    circuit = QuantumClifford.AbstractOperation[]
+    qubit_map = Dict{String,Int}()
+    qubit_offset = 0
+
+    for raw_line in eachline(filepath)
+        line = strip(raw_line)
+
+        # Strip inline comments
+        ci = findfirst("//", line)
+        !isnothing(ci) && (line = strip(line[1:ci.start-1]))
+        isempty(line) && continue
+
+        # Skip directives that carry no gate information
+        (startswith(line, "OPENQASM") || startswith(line, "include") ||
+         startswith(line, "creg")     || startswith(line, "measure") ||
+         startswith(line, "reset")    || startswith(line, "barrier") ||
+         startswith(line, "gate")     || startswith(line, "opaque")) && continue
+
+        # qreg declaration: build name[index] -> 1-based qubit number map
+        m = match(r"^qreg\s+(\w+)\[(\d+)\]\s*;", line)
+        if !isnothing(m)
+            reg, sz = m.captures[1], parse(Int, m.captures[2])
+            for i in 0:sz-1
+                qubit_map["$(reg)[$(i)]"] = qubit_offset + i + 1
+            end
+            qubit_offset += sz
+            continue
+        end
+
+        # Gate application — strip trailing semicolon then parse
+        line = endswith(line, ";") ? line[1:end-1] : line
+        m = match(r"^(\w+)\s*(.*)$", line)
+        isnothing(m) && continue
+
+        gate = lowercase(m.captures[1])
+        args_str = strip(m.captures[2])
+
+        # Drop any parenthesised parameter list (e.g. U(theta,phi,lambda))
+        args_str = replace(args_str, r"\([^)]*\)" => "")
+        args_str = strip(args_str)
+
+        qargs = [strip(q) for q in split(args_str, ",") if !isempty(strip(q))]
+        isempty(qargs) && continue
+
+        qs = [get(qubit_map, q, nothing) for q in qargs]
+        any(isnothing, qs) && continue  # skip unresolvable qubit references
+
+        if gate == "x" && length(qs) == 1
+            push!(circuit, sX(qs[1]))
+        elseif gate == "y" && length(qs) == 1
+            push!(circuit, sY(qs[1]))
+        elseif gate == "z" && length(qs) == 1
+            push!(circuit, sZ(qs[1]))
+        elseif gate == "h" && length(qs) == 1
+            push!(circuit, sHadamard(qs[1]))
+        elseif (gate == "cx" || gate == "cnot") && length(qs) == 2
+            push!(circuit, sCNOT(qs[1], qs[2]))
+        elseif gate == "s" && length(qs) == 1
+            push!(circuit, sPhase(qs[1]))
+        elseif gate == "sdg" && length(qs) == 1
+            push!(circuit, sInvPhase(qs[1]))
+        elseif gate == "t" && length(qs) == 1
+            push!(circuit, sT(qs[1]))
+        elseif gate == "tdg" && length(qs) == 1
+            # T† = S†·T, so apply T first then S†
+            push!(circuit, sT(qs[1]))
+            push!(circuit, sInvPhase(qs[1]))
+        end
+    end
+
+    return circuit
+end
+
+"""
+    get_T_count(circuit::Vector{QuantumClifford.AbstractOperation}) -> Int
+
+Return the number of `sT` gates in `circuit`.
+"""
+function get_T_count(circuit::Vector{QuantumClifford.AbstractOperation})
+    return count(op -> op isa sT, circuit)
 end

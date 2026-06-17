@@ -66,58 +66,78 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
         """Corresponding Pauli String of Measurement"""
         pauli::PauliOperator
         """Single bit measurement result in boolean"""
-        result::Union{Bool,Nothing}
+        result::Bool
     end
     """Denoting measurement results that are classically determined by stored eigenvalues of stabilizers"""
     struct ClassicalRandomRes
         """Corresponding Pauli String of Measurement"""
         pauli::PauliOperator
         """Single bit measurement result in boolean"""
-        result::Union{Bool,Nothing}
+        result::Bool
     end
     """Denoting measurement results that require performing actual quantum measurement"""
     struct QuantumRes
         """Corresponding Pauli String of Measurement"""
         pauli::PauliOperator
         """Single bit measurement result in boolean"""
-        result::Union{Bool,Nothing}
+        result::Bool
     end
 end
 
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 
 @derive MeasurementResult[Hash, Eq, Show]
-
-"""Struct that contains information describing current compiler state"""
-struct CompilerState
-    """Vector that holds all MeasurementResult"""
-    measurement_results::Vector{MeasurementResult.Type}
-    """Stabilizer object that describes current quantum state"""
-    stabilizer_group::Stabilizer
-    """Vector that holds all classical bits storing corresponding measurement results"""
-    classical_register::Vector{Union{Nothing,Bool}}
-    """Contain current circuit object"""
-    circuit::Circuit
-    """Number of gadgets inserted to replace nonclifford circuit operations"""
-    num_gadgets::Int
-    """Denote the Pauli Product Measurement that is being processed"""
-    instruction_pointer::Int
-end
 ##
 abstract type AbstractRuntime end
 
 struct SimRuntime <: AbstractRuntime
-    """Contain current compiler state"""
-    compiler_state::CompilerState
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Union{GeneralizedStabilizer, Nothing}
 end
 
+SimRuntime() = SimRuntime(nothing)
+
 struct DummyRuntime <: AbstractRuntime
-    """Contain current compiler state"""
-    compiler_state::CompilerState
     """Weight vector describes sampling probability between +1 and -1 measurement results"""
-    outcome_probs::Vector{Int}
+    p1_outcome_probs::Float16
+end
+
+DummyRuntime() = DummyRuntime(0.5)
+##
+"""Struct that contains information describing current compiler state"""
+Base.@kwdef struct CompilerState
+    """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
+    measurement_results::Vector{MeasurementResult.Type}
+    """
+    Stabilizer object that describes current quantum state
+    It has n columns where n is the number of total qubits (magic and stabilizer state qubits)
+    The tableau is not square (full-rank) before compilation is finished
+    """
+    stabilizer_group::Stabilizer
+    """Result of Measurement(..., bit, ...) is stored in classical_register[bit]"""
+    classical_register::Vector{Union{Nothing,Bool}}
+    """Contain current circuit object"""
+    circuit::Circuit
+    """Denote the Pauli Product Measurement that is being processed"""
+    instruction_pointer::Int
+    """TODO docstring"""
+    runtime::AbstractRuntime
+end
+##
+"""TODO docstring"""
+struct CompilationResult
+    """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
+    measurement_results::Vector{MeasurementResult.Type}
+    """TODO docstring"""
+    QPU_workload::Vector{MeasurementResult.Type}
+    """
+    Stabilizer object that describes current quantum state
+    It has n columns where n is the number of total qubits (magic and stabilizer state qubits)
+    The tableau is not square (full-rank) before compilation is finished
+    """
+    stabilizer_group::Stabilizer
+    """TODO docstring"""
+    QPUDuration::Int
 end
 ##
 function _result_type_str(t)
@@ -130,52 +150,69 @@ end
 _bool_str(::Nothing) = "nothing"
 _bool_str(b::Bool) = string(b)
 
-function _magic_pauli_str(p::PauliOperator, magic_qubits::Vector{Int})
-    phase_char = p.phase[] in (0x00, 0x01) ? '+' : '-'
-    chars = map(magic_qubits) do i
-        x, z = p[i]
-        x && z ? 'Y' : x ? 'X' : z ? 'Z' : '_'
+"""
+    show(io::IO, result::CompilerState)
+
+Pretty-print all debug-relevant fields of a `CompilerState`.
+
+# Arguments
+- `io`: output stream
+- `result`: compiler state to display
+
+# Returns
+Nothing; writes to `io`.
+"""
+function Base.show(io::IO, result::CompilerState)
+    println(io, "CompilerState [debug]")
+    println(io, "  Instruction Pointer: ", result.instruction_pointer)
+    n = length(result.measurement_results)
+    println(io, "  Measurements ($n):")
+    for i in 1:n
+        if !isassigned(result.measurement_results, i)
+            println(io, "    [$i] undefined")
+            continue
+        end
+        m = result.measurement_results[i]
+        println(io, "    [$i] ", m.pauli,
+                    "  →  ", _bool_str(m.result),
+                    "  (", _result_type_str(variant_name(m)), ")")
     end
-    return string(phase_char, String(chars))
+    reg = join(map(_bool_str, result.classical_register), ", ")
+    println(io, "  Classical Register: [", reg, "]")
+    println(io, "  Runtime: ", variant_name(result.runtime))
+    print(io, "  Stabilizer Group:\n")
+    show(io, result.stabilizer_group)
 end
 
 """
-    show(io, result::ComputerState)
+    show(io::IO, r::CompilationResult)
 
-Pretty-print the first four fields of `result.memory_state`:
-`pauli_qubits`, `magic_qubits`, `measurement_results`, and `StabilizerGroup`.
+Pretty-print a `CompilationResult`.
+
+# Arguments
+- `io`: output stream
+- `r`: compilation result to display
+
+# Returns
+Nothing; writes to `io`.
 """
-function Base.show(io::IO, result::S) where S <: AbstractRuntime
-    num_qubits = get_circuit_width(result.compiler_state.circuit)
-    magicqubits = collect(num_qubits-result.compiler_state.num_gadgets+1:num_qubits)
-    cs = result.compiler_state
+function Base.show(io::IO, r::CompilationResult)
     println(io, "Compilation Result")
-    if !isdefined(cs, :measurement_results)
-        println(io, "  Measurements: undefined")
-        println(io, "  Quantum Measurement Results: undefined")
-    else
-        n = length(cs.measurement_results)
-        println(io, "  Measurements ($n):")
-        for i in 1:n
-            if !isassigned(cs.measurement_results, i)
-                println(io, "    [$i] undefined")
-                continue
-            end
-            m = cs.measurement_results[i]
-            println(io, "    [$i] ", m.pauli,
-                        "  →  ", _bool_str(m.result),
-                        "  (", _result_type_str(variant_name(m)), ")")
-        end
-        quantum = filter(i -> isassigned(cs.measurement_results, i) &&
-                              isa_variant(cs.measurement_results[i], QuantumRes),
-                         1:n)
-        println(io, "  Quantum Measurement Results ($(length(quantum))):")
-        for (j, i) in enumerate(quantum)
-            m = cs.measurement_results[i]
-            println(io, "    [$j] ", _magic_pauli_str(m.pauli, magicqubits),
-                        "  →  ", _bool_str(m.result))
-        end
+    n = length(r.measurement_results)
+    println(io, "  Measurements ($n):")
+    for i in 1:n
+        m = r.measurement_results[i]
+        println(io, "    [$i] ", m.pauli,
+                    "  →  ", _bool_str(m.result),
+                    "  (", _result_type_str(variant_name(m)), ")")
     end
+    nq = length(r.QPU_workload)
+    println(io, "  QPU Workload ($nq):")
+    for (j, m) in enumerate(r.QPU_workload)
+        println(io, "    [$j] ", m.pauli,
+                    "  →  ", _bool_str(m.result))
+    end
+    println(io, "  QPU Duration: ", r.QPUDuration)
     print(io, "  Stabilizer Group:\n")
-    show(io, cs.stabilizer_group)
+    show(io, r.stabilizer_group)
 end
