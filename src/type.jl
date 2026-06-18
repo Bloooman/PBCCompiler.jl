@@ -124,22 +124,6 @@ Base.@kwdef struct CompilerState
     runtime::AbstractRuntime
 end
 ##
-"""TODO docstring"""
-struct CompilationResult
-    """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
-    measurement_results::Vector{MeasurementResult.Type}
-    """TODO docstring"""
-    QPU_workload::Vector{MeasurementResult.Type}
-    """
-    Stabilizer object that describes current quantum state
-    It has n columns where n is the number of total qubits (magic and stabilizer state qubits)
-    The tableau is not square (full-rank) before compilation is finished
-    """
-    stabilizer_group::Stabilizer
-    """TODO docstring"""
-    QPUDuration::Int
-end
-##
 function _result_type_str(t)
     t == :ClassicalDetermRes && return "ClassicalDeterministic"
     t == :ClassicalRandomRes && return "ClassicalRandom"
@@ -182,37 +166,4 @@ function Base.show(io::IO, result::CompilerState)
     println(io, "  Runtime: ", variant_name(result.runtime))
     print(io, "  Stabilizer Group:\n")
     show(io, result.stabilizer_group)
-end
-
-"""
-    show(io::IO, r::CompilationResult)
-
-Pretty-print a `CompilationResult`.
-
-# Arguments
-- `io`: output stream
-- `r`: compilation result to display
-
-# Returns
-Nothing; writes to `io`.
-"""
-function Base.show(io::IO, r::CompilationResult)
-    println(io, "Compilation Result")
-    n = length(r.measurement_results)
-    println(io, "  Measurements ($n):")
-    for i in 1:n
-        m = r.measurement_results[i]
-        println(io, "    [$i] ", m.pauli,
-                    "  →  ", _bool_str(m.result),
-                    "  (", _result_type_str(variant_name(m)), ")")
-    end
-    nq = length(r.QPU_workload)
-    println(io, "  QPU Workload ($nq):")
-    for (j, m) in enumerate(r.QPU_workload)
-        println(io, "    [$j] ", m.pauli,
-                    "  →  ", _bool_str(m.result))
-    end
-    println(io, "  QPU Duration: ", r.QPUDuration)
-    print(io, "  Stabilizer Group:\n")
-    show(io, r.stabilizer_group)
 end

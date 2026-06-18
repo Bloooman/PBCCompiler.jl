@@ -3,7 +3,7 @@
 # test_parse.jl — unit tests for parse_input
 using JLD2
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PauliConditional
-using PBCCompiler: MeasurementResult, CompilerState, SimRuntime, CompilationResult
+using PBCCompiler: MeasurementResult, CompilerState, SimRuntime
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using Moshi.Data: isa_variant
 using QuantumClifford: @P_str, Stabilizer
@@ -183,24 +183,6 @@ function _make_compiler_state()
 end
 
 # ---------------------------------------------------------------------------
-# Helper: construct a minimal CompilationResult for testing
-# ---------------------------------------------------------------------------
-function _make_result(;
-    measurement_results = MeasurementResult.Type[
-        ClassicalDetermRes(P"XZ", true),
-        ClassicalRandomRes(P"ZX", false),
-        QuantumRes(P"YI", true),
-    ],
-    qpu_workload = MeasurementResult.Type[
-        QuantumRes(P"YI", true),
-    ],
-    stabilizer_group = Stabilizer([P"XX", P"ZZ"]),
-    qpu_duration = 5,
-)
-    return CompilationResult(measurement_results, qpu_workload, stabilizer_group, qpu_duration)
-end
-
-# ---------------------------------------------------------------------------
 
 # Tests that save(CompilerState) creates a file with the expected keys.
 # No round-trip: CompilerState has no load counterpart.
@@ -215,90 +197,6 @@ end
     @test haskey(data, "instruction_pointer")
     @test !haskey(data, "circuit")
     @test !haskey(data, "runtime")
-    rm(path)
-end
-
-# Tests that `save` creates a file at the exact path supplied.
-@testset "save creates file at specified path" begin
-    path = tempname() * ".jld2"
-    save(_make_result(), path)
-    @test isfile(path)
-    rm(path)
-end
-
-# Tests that the saved file contains exactly the four expected top-level keys
-# and that no CompilerState internals (circuit, classical_register, etc.) leak in.
-@testset "save writes correct keys" begin
-    path = tempname() * ".jld2"
-    save(_make_result(), path)
-    data = JLD2.load(path)
-    @test haskey(data, "measurement_results")
-    @test haskey(data, "QPU_workload")
-    @test haskey(data, "stabilizer_group")
-    @test haskey(data, "QPUDuration")
-    @test !haskey(data, "classical_register")
-    @test !haskey(data, "circuit")
-    rm(path)
-end
-
-# Tests that load() reconstructs a CompilationResult identical to what was saved,
-# covering measurement_results round-trip across all three variant types.
-@testset "load round-trips measurement_results" begin
-    path = tempname() * ".jld2"
-    original = _make_result()
-    save(original, path)
-    loaded = load(path)
-
-    @test length(loaded.measurement_results) == 3
-
-    @test loaded.measurement_results[1].pauli  == P"XZ"
-    @test loaded.measurement_results[1].result == true
-    @test isa_variant(loaded.measurement_results[1], ClassicalDetermRes)
-
-    @test loaded.measurement_results[2].pauli  == P"ZX"
-    @test loaded.measurement_results[2].result == false
-    @test isa_variant(loaded.measurement_results[2], ClassicalRandomRes)
-
-    @test loaded.measurement_results[3].pauli  == P"YI"
-    @test loaded.measurement_results[3].result == true
-    @test isa_variant(loaded.measurement_results[3], QuantumRes)
-    rm(path)
-end
-
-# Tests that load() correctly restores QPU_workload entries.
-@testset "load round-trips QPU_workload" begin
-    path = tempname() * ".jld2"
-    save(_make_result(), path)
-    loaded = load(path)
-
-    @test length(loaded.QPU_workload) == 1
-    @test loaded.QPU_workload[1].pauli  == P"YI"
-    @test loaded.QPU_workload[1].result == true
-    @test isa_variant(loaded.QPU_workload[1], QuantumRes)
-    rm(path)
-end
-
-# Tests that the stabilizer_group round-trips through the JLD2 file,
-# checking both the number of generators and their individual Pauli strings.
-@testset "load round-trips stabilizer_group" begin
-    stab = Stabilizer([P"XX", P"ZZ"])
-    path = tempname() * ".jld2"
-    save(_make_result(stabilizer_group=stab), path)
-    loaded = load(path)
-
-    @test length(loaded.stabilizer_group) == 2
-    @test loaded.stabilizer_group[1] == P"XX"
-    @test loaded.stabilizer_group[2] == P"ZZ"
-    rm(path)
-end
-
-# Tests that QPUDuration round-trips as an exact integer value.
-@testset "load round-trips QPUDuration" begin
-    path = tempname() * ".jld2"
-    save(_make_result(qpu_duration=42), path)
-    loaded = load(path)
-
-    @test loaded.QPUDuration == 42
     rm(path)
 end
 
