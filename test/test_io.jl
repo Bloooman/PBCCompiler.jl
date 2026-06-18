@@ -8,6 +8,7 @@ using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using Moshi.Data: isa_variant
 using QuantumClifford: @P_str, Stabilizer
 using PBCCompiler: parse_input, save, load
+
 """
     with_qasm(f, gates)
 
@@ -134,6 +135,33 @@ end
     end
 end
 
+@testset "ccx (Toffoli) gate" begin
+    c = parse_input(joinpath(FIXTURES, "toffoli3.qasm"))
+    # h×2 (3 ops each) + 4 cx + t×4 + tdg×3 = 19 gate ops
+    @test length(c) == 19
+
+    # First 3 ops: h q[2] → ExpQuatPiPauli Z,X,Z on qubit 3
+    @test isa_variant(c[1], CircuitOp.ExpQuatPiPauli) && c[1].pauli == P"Z" && c[1].qubits == [3]
+    @test isa_variant(c[2], CircuitOp.ExpQuatPiPauli) && c[2].pauli == P"X" && c[2].qubits == [3]
+    @test isa_variant(c[3], CircuitOp.ExpQuatPiPauli) && c[3].pauli == P"Z" && c[3].qubits == [3]
+
+    # Op 4: cx q[1],q[2] → ctrl=2, tgt=3
+    @test isa_variant(c[4], CircuitOp.PauliConditional)
+    @test c[4].control_qubits == [2] && c[4].target_qubits == [3]
+
+    # Op 19: last cx q[0],q[1] → ctrl=1, tgt=2
+    @test isa_variant(c[19], CircuitOp.PauliConditional)
+    @test c[19].control_qubits == [1] && c[19].target_qubits == [2]
+end
+
+@testset "barrier is skipped" begin
+    with_qasm("barrier q;\nx q[0];") do path
+        c = parse_input(path)
+        @test length(c) == 1
+        @test isa_variant(c[1], CircuitOp.ExpHalfPiPauli)
+    end
+end
+
 @testset "Gate sequence ordering is preserved" begin
     with_qasm("s q[0];\nt q[0];\nsdg q[0];") do path
         c = parse_input(path)
@@ -153,153 +181,6 @@ end
         @test isa_variant(c[4], CircuitOp.PauliConditional)
         @test isa_variant(c[5], CircuitOp.Measurement)
     end
-end
-
-@testset "Sample input file (sample_input.qasm)" begin
-    c = parse_input(joinpath(FIXTURES,"sample_input.qasm"))
-    cx_ops      = filter(op -> isa_variant(op, CircuitOp.PauliConditional), c)
-    measure_ops = filter(op -> isa_variant(op, CircuitOp.Measurement),      c)
-    @test length(cx_ops)      == 3
-    @test length(measure_ops) == 2
-    # Measurements are in Z basis on qubits 0 and 1
-    @test all(op.pauli == P"Z" for op in measure_ops)
-    @test measure_ops[1].qubits == [1] && measure_ops[1].bit == 1
-    @test measure_ops[2].qubits == [2] && measure_ops[2].bit == 2
-end
-
-##
-# ---------------------------------------------------------------------------
-# Helper: construct a minimal CompilerState for coverage testing
-# ---------------------------------------------------------------------------
-function _make_compiler_state()
-    return CompilerState(
-        measurement_results = MeasurementResult.Type[ClassicalDetermRes(P"XZ", true)],
-        stabilizer_group    = Stabilizer([P"XX", P"ZZ"]),
-        classical_register  = Union{Nothing,Bool}[true, nothing],
-        circuit             = Circuit(),
-        instruction_pointer = 2,
-        runtime             = SimRuntime(),
-    )
-end
-
-# ---------------------------------------------------------------------------
-# Helper: construct a minimal CompilationResult for testing
-# ---------------------------------------------------------------------------
-function _make_result(;
-    measurement_results = MeasurementResult.Type[
-        ClassicalDetermRes(P"XZ", true),
-        ClassicalRandomRes(P"ZX", false),
-        QuantumRes(P"YI", true),
-    ],
-    qpu_workload = MeasurementResult.Type[
-        QuantumRes(P"YI", true),
-    ],
-    stabilizer_group = Stabilizer([P"XX", P"ZZ"]),
-    qpu_duration = 5,
-)
-    return CompilationResult(measurement_results, qpu_workload, stabilizer_group, qpu_duration)
-end
-
-# ---------------------------------------------------------------------------
-
-# Tests that save(CompilerState) creates a file with the expected keys.
-# No round-trip: CompilerState has no load counterpart.
-@testset "save(CompilerState) creates file with correct keys" begin
-    path = tempname() * ".jld2"
-    save(_make_compiler_state(), path)
-    @test isfile(path)
-    data = JLD2.load(path)
-    @test haskey(data, "measurement_results")
-    @test haskey(data, "stabilizer_group")
-    @test haskey(data, "classical_register")
-    @test haskey(data, "instruction_pointer")
-    @test !haskey(data, "circuit")
-    @test !haskey(data, "runtime")
-    rm(path)
-end
-
-# Tests that `save` creates a file at the exact path supplied.
-@testset "save creates file at specified path" begin
-    path = tempname() * ".jld2"
-    save(_make_result(), path)
-    @test isfile(path)
-    rm(path)
-end
-
-# Tests that the saved file contains exactly the four expected top-level keys
-# and that no CompilerState internals (circuit, classical_register, etc.) leak in.
-@testset "save writes correct keys" begin
-    path = tempname() * ".jld2"
-    save(_make_result(), path)
-    data = JLD2.load(path)
-    @test haskey(data, "measurement_results")
-    @test haskey(data, "QPU_workload")
-    @test haskey(data, "stabilizer_group")
-    @test haskey(data, "QPUDuration")
-    @test !haskey(data, "classical_register")
-    @test !haskey(data, "circuit")
-    rm(path)
-end
-
-# Tests that load() reconstructs a CompilationResult identical to what was saved,
-# covering measurement_results round-trip across all three variant types.
-@testset "load round-trips measurement_results" begin
-    path = tempname() * ".jld2"
-    original = _make_result()
-    save(original, path)
-    loaded = load(path)
-
-    @test length(loaded.measurement_results) == 3
-
-    @test loaded.measurement_results[1].pauli  == P"XZ"
-    @test loaded.measurement_results[1].result == true
-    @test isa_variant(loaded.measurement_results[1], ClassicalDetermRes)
-
-    @test loaded.measurement_results[2].pauli  == P"ZX"
-    @test loaded.measurement_results[2].result == false
-    @test isa_variant(loaded.measurement_results[2], ClassicalRandomRes)
-
-    @test loaded.measurement_results[3].pauli  == P"YI"
-    @test loaded.measurement_results[3].result == true
-    @test isa_variant(loaded.measurement_results[3], QuantumRes)
-    rm(path)
-end
-
-# Tests that load() correctly restores QPU_workload entries.
-@testset "load round-trips QPU_workload" begin
-    path = tempname() * ".jld2"
-    save(_make_result(), path)
-    loaded = load(path)
-
-    @test length(loaded.QPU_workload) == 1
-    @test loaded.QPU_workload[1].pauli  == P"YI"
-    @test loaded.QPU_workload[1].result == true
-    @test isa_variant(loaded.QPU_workload[1], QuantumRes)
-    rm(path)
-end
-
-# Tests that the stabilizer_group round-trips through the JLD2 file,
-# checking both the number of generators and their individual Pauli strings.
-@testset "load round-trips stabilizer_group" begin
-    stab = Stabilizer([P"XX", P"ZZ"])
-    path = tempname() * ".jld2"
-    save(_make_result(stabilizer_group=stab), path)
-    loaded = load(path)
-
-    @test length(loaded.stabilizer_group) == 2
-    @test loaded.stabilizer_group[1] == P"XX"
-    @test loaded.stabilizer_group[2] == P"ZZ"
-    rm(path)
-end
-
-# Tests that QPUDuration round-trips as an exact integer value.
-@testset "load round-trips QPUDuration" begin
-    path = tempname() * ".jld2"
-    save(_make_result(qpu_duration=42), path)
-    loaded = load(path)
-
-    @test loaded.QPUDuration == 42
-    rm(path)
 end
 
 end

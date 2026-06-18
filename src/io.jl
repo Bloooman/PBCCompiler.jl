@@ -1,13 +1,13 @@
 using JLD2
 using QuantumClifford
 import Base: show
-##
+
 """
     parse_input(filepath::String) -> Circuit
 
 Read an OpenQASM 2.0 file and return a `Circuit`.
 
-Supported gates: `h`, `s`, `sdg`, `t`, `tdg`, `x`, `y`, `z`, `cx`, `measure`.
+Supported gates: `h`, `s`, `sdg`, `t`, `tdg`, `x`, `y`, `z`, `cx`, `ccx`, `measure`.
 Each gate is translated to `CircuitOp` variants:
 - `h`   → three `ExpQuatPiPauli`: Z, X, Z
 - `s`   → `ExpQuatPiPauli(P"Z")`
@@ -16,6 +16,7 @@ Each gate is translated to `CircuitOp` variants:
 - `tdg` → `ExpEighPiPauli(-P"Z")`
 - `x/y/z` → `ExpHalfPiPauli`
 - `cx q[c],q[t]` → `PauliConditional(P"Z", [c], P"X", [t])`
+- `ccx q[c1],q[c2],q[t]` → 15-op Toffoli decomposition (H, T, Tdg, CX sequence)
 - `measure q[i] -> c[j]` → `Measurement(P"Z", j, [i])`
 
 Header lines (`OPENQASM`, `include`, `qreg`, `creg`, `barrier`) are skipped.
@@ -49,12 +50,13 @@ function parse_input(filepath::String)::Circuit
                 continue
             end
 
-            # ccx q[ctrl],q[ctrl],q[tgt];
+            # ccx Toffoli 3;
             m = match(r"^[Cc][Cc][Xx]\s+\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\],\s*\w+\[(\d+)\];$", line)
             if m !== nothing
-                ctrl = [parse(Int, m[1])+1, parse(Int, m[2])+1]
-                tgt  = parse(Int, m[3])+1
-                push!(circuit, CircuitOp.PauliConditional(P"ZZ", ctrl, P"X", [tgt]))
+                ctrl_1 = parse(Int, m[1])+1
+                ctrl_2 = parse(Int, m[2])+1
+                tgt    = parse(Int, m[3])+1
+                append!(circuit, _toffoli_ops(ctrl_1, ctrl_2, tgt))
                 continue
             end
 
@@ -70,6 +72,40 @@ function parse_input(filepath::String)::Circuit
     end
 
     return circuit
+end
+
+"""
+    _toffoli_ops(ctrl_1::Int, ctrl_2::Int, tgt::Int) -> Vector{CircuitOp.Type}
+
+Return the 15-op decomposition of a Toffoli (CCX) gate into H, T, Tdg, and CX ops.
+
+# Arguments
+- `ctrl_1`: 1-indexed first control qubit
+- `ctrl_2`: 1-indexed second control qubit
+- `tgt`: 1-indexed target qubit
+
+# Returns
+15-element `Vector{CircuitOp.Type}` implementing the standard Toffoli decomposition.
+"""
+function _toffoli_ops(ctrl_1::Int, ctrl_2::Int, tgt::Int)::Vector{CircuitOp.Type}
+    cx(c, t) = CircuitOp.PauliConditional(P"Z", [c], P"X", [t])
+    ops = CircuitOp.Type[]
+    append!(ops, _single_qubit_ops("h",   tgt))
+    push!(ops,   cx(ctrl_2, tgt))
+    append!(ops, _single_qubit_ops("tdg", tgt))
+    push!(ops,   cx(ctrl_1, tgt))
+    append!(ops, _single_qubit_ops("t",   tgt))
+    push!(ops,   cx(ctrl_2, tgt))
+    append!(ops, _single_qubit_ops("tdg", tgt))
+    push!(ops,   cx(ctrl_1, tgt))
+    append!(ops, _single_qubit_ops("t",   ctrl_2))
+    append!(ops, _single_qubit_ops("t",   tgt))
+    append!(ops, _single_qubit_ops("h",   tgt))
+    push!(ops,   cx(ctrl_1, ctrl_2))
+    append!(ops, _single_qubit_ops("t",   ctrl_1))
+    append!(ops, _single_qubit_ops("tdg", ctrl_2))
+    push!(ops,   cx(ctrl_1, ctrl_2))
+    return ops
 end
 
 # Internal: translate a single-qubit gate name to its CircuitOps.
@@ -98,6 +134,7 @@ function _single_qubit_ops(gate::AbstractString, q::Int)::Vector{CircuitOp.Type}
         error("Unsupported gate: $gate")
     end
 end
+
 
 """
     save(result::CompilerState, filepath::String)
