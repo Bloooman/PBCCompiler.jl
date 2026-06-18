@@ -115,6 +115,7 @@ Saves `measurement_results`, `stabilizer_group`, `classical_register`, and
 Nothing.
 """
 function save(result::CompilerState, filepath::String)
+    mkpath(dirname(filepath))
     JLD2.jldsave(filepath;
         measurement_results  = result.measurement_results,
         stabilizer_group     = result.stabilizer_group,

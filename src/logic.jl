@@ -30,7 +30,7 @@ Get initial Execution State using input circuit and input state.
 - `input_state`: initial qubit state
 """
 ##
-function get_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
+function build_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
     validate_circuit(input_circuit)
     if isnothing(input_state)
         input_state=Stabilizer(one(Stabilizer, get_circuit_width(input_circuit); basis=:Z))
@@ -89,17 +89,16 @@ function do_quantum_step(state::CompilerState)
 end
 
 """
-    run(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing; dummy::Bool=false, outcome_probs::Vector{Int}=[1,1]) -> S where S <: AbstractRuntime
+    run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
 
 Run compute/compile with provided circuit and input state(described by stabilizer group)
 # Fields
 - `circuit`: input circuit for compilation
+- 'rt': runtime used for current compilation
 - `input_state`: initial qubit state
-- `dummy`: flag for running dummy simulation
-- `outcome_probs`: 2-element distribution vector [p_p1, p_m1]. p_p1 is the probability measuring +1; p_m1 is the probability measuring -1
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
-    state = get_compilerstate(input_circuit, rt, input_state)
+    state = build_compilerstate(input_circuit, rt, input_state)
     len=length(state.classical_register)
     while !isempty(state.circuit)
         @debug "Working on $(state.instruction_pointer) th PPM" _group=:api
