@@ -169,7 +169,7 @@ Saves `measurement_results`, `stabilizer_group`, `classical_register`, and
 # Returns
 Nothing.
 """
-function save(result::CompilerState, filepath::String)
+function save_result(result::CompilerState, filepath::String)
     mkpath(dirname(filepath))
     JLD2.jldsave(filepath;
         measurement_results  = result.measurement_results,
@@ -191,7 +191,7 @@ Save all fields of a `CompilationResult` to a `.jld2` file at `filepath`.
 # Returns
 Nothing.
 """
-function save(r::CompilationResult, filepath::String)
+function save_result(r::CompilationResult, filepath::String)
     mkpath(dirname(filepath))
     JLD2.jldsave(filepath;
         measurement_results = r.measurement_results,
@@ -212,7 +212,7 @@ Load a `CompilationResult` from a `.jld2` file previously written by `save`.
 # Returns
 A `CompilationResult` reconstructed from the saved fields.
 """
-function load(filepath::String)::CompilationResult
+function load_result(filepath::String)::CompilationResult
     data = JLD2.load(filepath)
     return CompilationResult(
         data["measurement_results"],
