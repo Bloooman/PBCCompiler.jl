@@ -6,7 +6,7 @@ using PBCCompiler: Circuit, CircuitOp, affectedqubits
 using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using Moshi.Match: @match
 
-import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_graph, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition, plot_hyperedge_frequency
+import PBCCompiler: circuitplot, circuitplot!, circuitplot_axis, plot_histogram, plot_graph, plot_weight_histogram, plot_std_graph, plot_partition, plot_hypergraph, plot_hypergraph_partition, plot_hyperedge_frequency, plot_cooccurrence, plot_incidence
 
 # Define the recipe with attributes
 Makie.@recipe(CircuitPlot, circuit) do scene
@@ -848,5 +848,165 @@ function plot_hyperedge_frequency(freq::Dict{Vector{Int}, Float64})::Figure
     return fig
 end
 
+"""
+    plot_cooccurrence(h::KaHyPar.HyperGraph) -> Figure
+
+Co-occurrence weighted-adjacency heatmap with hierarchical leaf ordering.
+
+# Arguments
+- `h`: KaHyPar hypergraph (`n_vertices`, `edge_indices`, `hyperedges`, `e_weights`)
+
+# Returns
+CairoMakie Figure. Rows/columns are nodes reordered by average-linkage clustering
+on dissimilarity 1 - W/max(W). Tick labels show original 0-based node ids.
+Diagonal is zeroed so the colormap reflects only inter-node co-occurrence.
+
+W_ij = sum of `e_weights[e]` over all hyperedges `e` containing both node i and node j
+(raw sum, not normalized by hyperedge size or count).
+
+# Reading the plot
+- **Bright cell at (i, j)**: nodes i and j co-appear in one or more heavy hyperedges.
+- **Bright diagonal block**: a group of nodes that all co-appear frequently with each other —
+  this is a community. The reordering groups such nodes together so communities emerge
+  as contiguous blocks along the diagonal.
+- **Off-diagonal brightness**: nodes i and j share hyperedges despite being in different
+  communities (e.g. bridge nodes or cut hyperedges).
+- Tick labels show the original 0-based node id at each reordered position.
+"""
+function plot_cooccurrence(h::KaHyPar.HyperGraph)::Figure
+    n = Int(h.n_vertices)
+    m = length(h.edge_indices) - 1
+
+    W = zeros(Float64, n, n)
+    for e in 1:m
+        verts = h.hyperedges[h.edge_indices[e]+1 : h.edge_indices[e+1]]
+        isempty(verts) && continue
+        w = Float64(h.e_weights[e])
+        for i in verts, j in verts
+            i == j && continue
+            W[i+1, j+1] += w
+        end
+    end
+
+    wmax = maximum(W)
+    D = wmax > 0 ? 1.0 .- W ./ wmax : ones(n, n)
+    D[diagind(D)] .= 0.0
+    result = hclust(D, linkage=:average)
+    perm = result.order
+
+    Wr = W[perm, perm]
+
+    fig = Figure(size=(800, 700))
+    ax = Axis(fig[1, 1],
+        title="Co-occurrence matrix (hierarchical ordering)",
+        xlabel="Node (original id)", ylabel="Node (original id)")
+
+    hm = heatmap!(ax, Wr, colormap=:viridis)
+
+    stride = max(1, n ÷ 20)
+    tick_pos = collect(1:stride:n)
+    tick_labels = string.(perm[tick_pos] .- 1)
+    ax.xticks = (tick_pos, tick_labels)
+    ax.yticks = (tick_pos, tick_labels)
+    ax.xticklabelrotation = π / 2
+
+    Colorbar(fig[1, 2], hm, label="Co-occurrence weight")
+
+    return fig
+end
+
+"""
+    plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int}) -> Figure
+
+Incidence matrix heatmap with nodes and hyperedges reordered to expose partition structure.
+
+# Arguments
+- `h`: KaHyPar hypergraph
+- `parts`: partition assignment vector of length `h.n_vertices` (0-based block ids, as returned by KaHyPar)
+
+# Ordering
+- **Nodes (x-axis)**: sorted by `parts` block id — all nodes in block 0 first, then
+  block 1, etc. Red vertical lines mark the block boundaries.
+- **Hyperedges (y-axis)**: non-cut hyperedges first, grouped by their partition block
+  (well-defined since all their nodes are in the same block) and sorted by `e_weights`
+  descending within each block. Cut hyperedges are placed at the top, also sorted by
+  `e_weights` descending.
+
+# Returns
+CairoMakie Figure. Cell color encodes `e_weights[e]` for member nodes, white for
+non-members. Cut hyperedges (members spanning >1 partition block) are highlighted
+with a semi-transparent red overlay. The title reports the cut/non-cut counts.
+Hyperedge y-axis labels are reordered positions (1-based), not original ids.
+
+# Reading the plot
+- **Colored cell at column i, row e**: node i is a member of hyperedge e; darkness
+  reflects the hyperedge weight `e_weights[e]`.
+- **White cell**: node i is not a member of hyperedge e.
+- **Colored band confined within one vertical block**: a non-cut hyperedge — all its
+  nodes are in the same partition.
+- **Red-tinted row**: a cut hyperedge whose members span more than one partition block.
+  Its colored cells will cross at least one red vertical line. These are the edges
+  penalized by the min-cut objective.
+"""
+function plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int})::Figure
+    n = Int(h.n_vertices)
+    m = length(h.edge_indices) - 1
+    num_blocks = maximum(parts) + 1
+
+    H = zeros(Float64, n, m)
+    edge_block = Vector{Int}(undef, m)
+    is_cut = Vector{Bool}(undef, m)
+
+    for e in 1:m
+        verts = h.hyperedges[h.edge_indices[e]+1 : h.edge_indices[e+1]]
+        isempty(verts) && continue
+        w = Float64(h.e_weights[e])
+        for v in verts
+            H[v+1, e] = w
+        end
+        node_parts = [parts[v+1] for v in verts]
+        is_cut[e] = length(unique(node_parts)) > 1
+        # cut edges get sentinel num_blocks so they sort to the top (largest key)
+        edge_block[e] = is_cut[e] ? num_blocks : node_parts[1]
+    end
+
+    node_perm = sortperm(parts)
+    edge_perm = sort(1:m, by=e -> (edge_block[e], -Float64(h.e_weights[e])))
+
+    Hr = H[node_perm, edge_perm]
+    is_cut_r = is_cut[edge_perm]
+    parts_r = parts[node_perm]
+
+    n_cut = sum(is_cut)
+    fig = Figure(size=(900, 700))
+    ax = Axis(fig[1, 1],
+        title="Incidence matrix — $(m - n_cut) non-cut, $n_cut cut hyperedges",
+        xlabel="Node (original id)", ylabel="Hyperedge (reordered)")
+
+    hm = heatmap!(ax, Hr, colormap=:Blues)
+
+    # red overlay on cut hyperedge rows
+    for e in 1:m
+        is_cut_r[e] && poly!(ax, Rect(0.5, e - 0.5, n, 1.0), color=(:red, 0.15))
+    end
+
+    # partition boundary lines on node axis
+    for i in 1:n-1
+        parts_r[i] != parts_r[i+1] && vlines!(ax, i + 0.5, color=:red, linewidth=1.5)
+    end
+
+    node_stride = max(1, n ÷ 20)
+    node_tick_pos = collect(1:node_stride:n)
+    ax.xticks = (node_tick_pos, string.(node_perm[node_tick_pos] .- 1))
+    ax.xticklabelrotation = π / 2
+
+    edge_stride = max(1, m ÷ 20)
+    edge_tick_pos = collect(1:edge_stride:m)
+    ax.yticks = (edge_tick_pos, string.(edge_tick_pos))
+
+    Colorbar(fig[1, 2], hm, label="Hyperedge weight")
+
+    return fig
+end
 
 end # module
