@@ -2,10 +2,15 @@ using JLD2
 using QuantumClifford
 import Base: show
 
+"""Sequence of abstract circuit operations."""
+const Circuit = Vector{CircuitOp.Type}
+
 """
     parse_input(filepath::String) -> Circuit
 
-Read an OpenQASM 2.0 file and return a `Circuit`.
+Read an OpenQASM 2.0 or 3.0 file and return a `Circuit`.
+
+The version is detected from the `OPENQASM X.Y;` header (defaults to 2.0).
 
 Supported gates: `h`, `s`, `sdg`, `t`, `tdg`, `x`, `y`, `z`, `cx`, `ccx`, `measure`.
 Each gate is translated to `CircuitOp` variants:
@@ -17,9 +22,11 @@ Each gate is translated to `CircuitOp` variants:
 - `x/y/z` → `ExpHalfPiPauli`
 - `cx q[c],q[t]` → `PauliConditional(P"Z", [c], P"X", [t])`
 - `ccx q[c1],q[c2],q[t]` → 15-op Toffoli decomposition (H, T, Tdg, CX sequence)
-- `measure q[i] -> c[j]` → `Measurement(P"Z", j, [i])`
 
-Header lines (`OPENQASM`, `include`, `creg`, `barrier`) are skipped.
+QASM 2.0 measure: `measure q[i] -> c[j]` → `Measurement(P"Z", j, [i])`
+QASM 3.0 measure: `meas[j] = measure q[i]` → `Measurement(P"Z", j, [i])`
+
+Header/declaration lines (`OPENQASM`, `include`, `barrier`, `creg`/`bit[N]`) are skipped.
 If no `measure` statement is present, all qubits are measured at the end: qubit `q`
 maps to classical bit `q`.
 """
@@ -27,30 +34,60 @@ function parse_input(filepath::String)::Circuit
     circuit = Circuit()
     n_qubits    = 0
     has_measure = false
+    version     = 2
 
     open(filepath) do file
         for raw in eachline(file)
             line = strip(raw)
             isempty(line) && continue
             startswith(line, "//") && continue
-            any(startswith(line, pfx) for pfx in
-                ("OPENQASM", "include", "creg", "barrier")) && continue
+            any(startswith(line, pfx) for pfx in ("include", "barrier")) && continue
 
-            # qreg q[N];
-            m = match(r"^qreg\s+\w+\[(\d+)\];$", line)
+            # detect OPENQASM version from header
+            m = match(r"^OPENQASM\s+(\d+)\.", line)
             if m !== nothing
-                n_qubits = parse(Int, m[1])
+                version = parse(Int, m[1])
                 continue
             end
 
-            # measure q[i] -> c[j];
-            m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
-            if m !== nothing
-                q = parse(Int, m[1])+1
-                c = parse(Int, m[2])+1
-                push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
-                has_measure = true
-                continue
+            if version == 2
+                startswith(line, "creg") && continue
+
+                # qreg q[N];
+                m = match(r"^qreg\s+\w+\[(\d+)\];$", line)
+                if m !== nothing
+                    n_qubits = parse(Int, m[1])
+                    continue
+                end
+
+                # measure q[i] -> c[j];
+                m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
+                if m !== nothing
+                    q = parse(Int, m[1])+1
+                    c = parse(Int, m[2])+1
+                    push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
+                    has_measure = true
+                    continue
+                end
+            else
+                startswith(line, "bit[") && continue
+
+                # qubit[N] name;
+                m = match(r"^qubit\[(\d+)\]\s+\w+;$", line)
+                if m !== nothing
+                    n_qubits = parse(Int, m[1])
+                    continue
+                end
+
+                # meas[j] = measure q[i];
+                m = match(r"^\w+\[(\d+)\]\s*=\s*measure\s+\w+\[(\d+)\];$", line)
+                if m !== nothing
+                    c = parse(Int, m[1])+1
+                    q = parse(Int, m[2])+1
+                    push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
+                    has_measure = true
+                    continue
+                end
             end
 
             # cx q[ctrl],q[tgt];
@@ -62,7 +99,7 @@ function parse_input(filepath::String)::Circuit
                 continue
             end
 
-            # ccx Toffoli 3;
+            # ccx Toffoli;
             m = match(r"^[Cc][Cc][Xx]\s+\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\],\s*\w+\[(\d+)\];$", line)
             if m !== nothing
                 ctrl_1 = parse(Int, m[1])+1
