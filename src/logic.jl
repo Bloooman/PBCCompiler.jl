@@ -126,5 +126,5 @@ function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothi
         end
     end
     @debug "Compute/Compile Complete" _group=:api
-    result = to_result(state)
+    return state
 end

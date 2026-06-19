@@ -40,10 +40,10 @@ Extract qubit interaction graph from result.compiler_state
 When quantum_only is false, plot interaction hypergraph among all qubits using all Pauli Product Measurement
 When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
-function get_graph(result::S, quantum_only::Bool=false) where S <: AbstractRuntime
+function get_graph(result::CompilationResult, quantum_only::Bool=false)
     num_nodes=length(result.compiler_state.stabilizer_group[1])
     g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
-    measurements = quantum_only ? result.compiler_state.measurement_results : filter(mr -> isa_variant(mr, QuantumRes), result.compiler_state.measurement_results)
+    measurements = quantum_only ? result.measurement_results : result.QPU_workload
     for m in measurements
         p=m.pauli
         for i in 1:length(p)
@@ -153,8 +153,8 @@ Extract qubit interaction hypergraph from resulted CompilerState.
 When quantum_only is false, plot interaction hypergraph among all qubits using all Pauli Product Measurement
 When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
-function get_hypergraph(result::S, quantum_only::Bool=false) where S <: AbstractRuntime
-    measurements = quantum_only ? result.compiler_state.measurement_results : filter(mr -> isa_variant(mr, QuantumRes), result.compiler_state.measurement_results)
+function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
+    measurements = quantum_only ? result.measurement_results : result.QPU_workload
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis

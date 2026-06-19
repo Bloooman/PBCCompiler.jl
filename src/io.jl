@@ -19,10 +19,14 @@ Each gate is translated to `CircuitOp` variants:
 - `ccx q[c1],q[c2],q[t]` → 15-op Toffoli decomposition (H, T, Tdg, CX sequence)
 - `measure q[i] -> c[j]` → `Measurement(P"Z", j, [i])`
 
-Header lines (`OPENQASM`, `include`, `qreg`, `creg`, `barrier`) are skipped.
+Header lines (`OPENQASM`, `include`, `creg`, `barrier`) are skipped.
+If no `measure` statement is present, all qubits are measured at the end: qubit `q`
+maps to classical bit `q`.
 """
 function parse_input(filepath::String)::Circuit
     circuit = Circuit()
+    n_qubits    = 0
+    has_measure = false
 
     open(filepath) do file
         for raw in eachline(file)
@@ -30,7 +34,14 @@ function parse_input(filepath::String)::Circuit
             isempty(line) && continue
             startswith(line, "//") && continue
             any(startswith(line, pfx) for pfx in
-                ("OPENQASM", "include", "qreg", "creg", "barrier")) && continue
+                ("OPENQASM", "include", "creg", "barrier")) && continue
+
+            # qreg q[N];
+            m = match(r"^qreg\s+\w+\[(\d+)\];$", line)
+            if m !== nothing
+                n_qubits = parse(Int, m[1])
+                continue
+            end
 
             # measure q[i] -> c[j];
             m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
@@ -38,6 +49,7 @@ function parse_input(filepath::String)::Circuit
                 q = parse(Int, m[1])+1
                 c = parse(Int, m[2])+1
                 push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
+                has_measure = true
                 continue
             end
 
@@ -68,6 +80,12 @@ function parse_input(filepath::String)::Circuit
                 append!(circuit, _single_qubit_ops(gate, q))
                 continue
             end
+        end
+    end
+
+    if !has_measure
+        for q in 1:n_qubits
+            push!(circuit, CircuitOp.Measurement(P"Z", q, [q]))
         end
     end
 
