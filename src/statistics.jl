@@ -154,7 +154,7 @@ When quantum_only is false, plot interaction hypergraph among all qubits using a
 When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
 function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
-    measurements = quantum_only ? result.measurement_results : result.QPU_workload
+    measurements = quantum_only ? result.QPU_workload : result.measurement_results
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
@@ -306,4 +306,24 @@ end
 function num_nonclifford(circuit::Circuit)
     num = length(find_variant_indices(circuit, ExpEighPiPauli))
     return num
+end
+##
+"""
+    hyperedge_size_distribution(h::KaHyPar.HyperGraph) -> Dict{Int,Int}
+
+Count the number of hyperedges at each size across the entire hypergraph.
+
+# Arguments
+- `h`: the hypergraph to analyse
+
+# Returns
+A `Dict` mapping each hyperedge size to its count.
+"""
+function hyperedge_size_distribution(h::KaHyPar.HyperGraph)::Dict{Int,Int}
+    dist = Dict{Int,Int}()
+    for i in 1:(length(h.edge_indices) - 1)
+        s = Int(h.edge_indices[i + 1] - h.edge_indices[i])
+        dist[s] = get(dist, s, 0) + 1
+    end
+    return dist
 end

@@ -96,8 +96,11 @@ function to_result(state::CompilerState)
     for i in quantum
         p = i.pauli
         r = i.result
-        load = QuantumRes(p[magicqubits], r)
-        push!(qpu_load, load)
+        magic_p = p[magicqubits]
+        if length(magic_p) > 1
+            load = QuantumRes(p[magicqubits], r)
+            push!(qpu_load, load)
+        end
     end
     result = CompilationResult(state.measurement_results, qpu_load, state.stabilizer_group, length(qpu_load))
 end
