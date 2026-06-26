@@ -91,18 +91,25 @@ end
 function to_result(state::CompilerState)
     num_qubits = get_circuit_width(state.circuit)
     quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
-    magicqubits = collect(num_qubits-length(quantum)+1:num_qubits)
+    magicqubits = collect(num_qubits - length(quantum) + 1 : num_qubits)
+
+    excluded_local = Set{Int}()
     qpu_load = Vector{MeasurementResult.Type}()
-    for i in quantum
-        p = i.pauli
-        r = i.result
-        magic_p = p[magicqubits]
-        if length(magic_p) > 1
-            load = QuantumRes(p[magicqubits], r)
-            push!(qpu_load, load)
+
+    for mr in quantum
+        magic_p = mr.pauli[magicqubits]
+        for i in excluded_local
+            magic_p[i] = (false, false)
+        end
+        non_id = findall(i -> let (x, z) = magic_p[i]; x || z end, 1:length(magic_p))
+        if length(non_id) == 1
+            push!(excluded_local, non_id[1])
+        else
+            push!(qpu_load, QuantumRes(magic_p, mr.result))
         end
     end
-    result = CompilationResult(state.measurement_results, qpu_load, state.stabilizer_group, length(qpu_load))
+
+    CompilationResult(state.measurement_results, qpu_load, state.stabilizer_group, length(qpu_load))
 end
 
 """
