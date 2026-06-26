@@ -179,7 +179,6 @@ function Base.show(io::IO, result::CompilerState)
     end
     reg = join(map(_bool_str, result.classical_register), ", ")
     println(io, "  Classical Register: [", reg, "]")
-    println(io, "  Runtime: ", variant_name(result.runtime))
     print(io, "  Stabilizer Group:\n")
     show(io, result.stabilizer_group)
 end
