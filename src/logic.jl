@@ -113,7 +113,7 @@ function to_result(state::CompilerState)
 end
 
 """
-    run(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing; dummy::Bool=false, outcome_probs::Vector{Int}=[1,1]) -> S where S <: AbstractRuntime
+    run(input_circuit::Circuit, rt::S, partitioner::NoPartitioner, input_state::Union{Stabilizer, Nothing}=nothing) -> S where S <: AbstractRuntime
 
 Run compute/compile with provided circuit and input state(described by stabilizer group)
 # Fields
