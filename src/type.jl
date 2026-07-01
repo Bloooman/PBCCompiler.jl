@@ -105,7 +105,7 @@ end
 DummyRuntime() = DummyRuntime(0.5)
 ##
 """Struct that contains information describing current compiler state"""
-Base.@kwdef struct CompilerState
+Base.@kwdef struct CompilerState{R<:AbstractRuntime}
     """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
     measurement_results::Vector{MeasurementResult.Type}
     """
@@ -121,7 +121,18 @@ Base.@kwdef struct CompilerState
     """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
     """TODO docstring"""
-    runtime::AbstractRuntime
+    runtime::R
+end
+
+function Base.copy(s::CompilerState)
+    CompilerState(
+        copy(s.measurement_results),   # new Vector, same elements
+        copy(s.stabilizer_group),      # new container — check this is actually mutable/needs it
+        copy(s.classical_register),    # new Vector
+        copy(s.circuit),                     # intentionally aliased — read-only per your compilation pass
+        s.instruction_pointer,         # Int — copy() would be a no-op anyway
+        s.runtime                      # alias unless TraversalRuntime is itself mutated in place
+    )
 end
 ##
 """TODO docstring"""
