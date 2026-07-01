@@ -103,6 +103,13 @@ struct DummyRuntime <: AbstractRuntime
 end
 
 DummyRuntime() = DummyRuntime(0.5)
+
+struct TraversalRuntime <: AbstractRuntime
+    """Weight vector describes sampling probability between +1 and -1 measurement results"""
+    p1_outcome_probs::Float16
+end
+
+TraversalRuntime() = TraversalRuntime(1)
 ##
 """Struct that contains information describing current compiler state"""
 Base.@kwdef struct CompilerState{R<:AbstractRuntime}

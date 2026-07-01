@@ -65,7 +65,7 @@ function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::SimR
     return rt
 end
 
-function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::DummyRuntime)
+function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::R) where R<:AbstractRuntime
     return rt
 end
 

@@ -106,6 +106,43 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
         end
     end
 end
+
+function get_measurement_result(state::CompilerState{TraversalRuntime}, op::CircuitOp.Type)
+    @debug "Measuring" op _group=:api
+    rt = state.runtime
+    outcome_probs = [1-rt.p1_outcome_probs, rt.p1_outcome_probs]
+    result = wsample([false,true],outcome_probs)
+    check_list=state.stabilizer_group
+    num_qubits = get_circuit_width(state.circuit)
+    len=length(check_list)
+    projection = check_PPM(check_list, op, num_qubits)
+    if projection === nothing
+        return nothing
+    else
+        if projection[3] === nothing
+            if projection[2]<=len
+                @debug "This measurement outputs Classical Random Result" _group=:api
+                q_1=[1:get_circuit_width(state.circuit);]
+                Q_1=ExpQuatPiPauli(check_list[projection[2]],q_1)
+                p_2=(-1)^result*op.pauli
+                Q_2=ExpQuatPiPauli(p_2,op.qubits)
+                pushfirst!(state.circuit,Q_1,Q_2,Q_1)
+                preprocess_circuit(state.circuit)
+                return (ClassicalRandomRes(op.pauli, result), state)
+            else
+                paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
+                a_stabilizer= Stabilizer([paulistring])
+                check_list=vcat(check_list,a_stabilizer)
+                @reset state.stabilizer_group = check_list
+                return (QuantumRes(op.pauli, result), state)
+            end
+        else
+            result = Bool(projection[3]>>1)
+            @debug "This measurement outputs Classical Deterministic Result" _group=:api
+            return (ClassicalDetermRes(op.pauli, result), state)
+        end
+    end
+end
 ##
 """
     quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
