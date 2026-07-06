@@ -6,14 +6,33 @@ import Base: show
 const Circuit = Vector{CircuitOp.Type}
 
 """
+Parsed gate definition from a `.inc` file or an inline `gate` block.
+
+Fields:
+- `name`: lowercase gate name
+- `params`: formal angle parameter names (empty for non-parameterized gates)
+- `qubits`: formal qubit argument names
+- `body`: gate body split into individual statements (semicolons removed)
+"""
+struct GateDef
+    name::String
+    params::Vector{String}
+    qubits::Vector{String}
+    body::Vector{String}
+end
+
+"""
     parse_input(filepath::String) -> Circuit
 
 Read an OpenQASM 2.0 or 3.0 file and return a `Circuit`.
 
 The version is detected from the `OPENQASM X.Y;` header (defaults to 2.0).
 
-Supported gates: `h`, `s`, `sdg`, `t`, `tdg`, `x`, `y`, `z`, `cx`, `ccx`, `measure`.
-Each gate is translated to `CircuitOp` variants:
+`include "filename.inc";` directives are followed and gate definitions are loaded
+from the referenced file. Gate definitions in the circuit file itself are also parsed.
+Loaded gates are expanded recursively into the primitive Clifford+T gate set.
+
+Primitive gates (mapped directly to `CircuitOp` variants):
 - `h`   → three `ExpQuatPiPauli`: Z, X, Z
 - `s`   → `ExpQuatPiPauli(P"Z")`
 - `sdg` → `ExpQuatPiPauli(-P"Z")`
@@ -21,102 +40,78 @@ Each gate is translated to `CircuitOp` variants:
 - `tdg` → `ExpEighPiPauli(-P"Z")`
 - `x/y/z` → `ExpHalfPiPauli`
 - `cx q[c],q[t]` → `PauliConditional(P"Z", [c], P"X", [t])`
-- `ccx q[c1],q[c2],q[t]` → 15-op Toffoli decomposition (H, T, Tdg, CX sequence)
+- `id` → no-op
 
-QASM 2.0 measure: `measure q[i] -> c[j]` → `Measurement(P"Z", j, [i])`
-QASM 3.0 measure: `meas[j] = measure q[i]` → `Measurement(P"Z", j, [i])`
+Composite gates (`ccx`, `cz`, `cy`, `ch`, etc.) are expanded via their definitions
+from a loaded `.inc` file.
 
-Header/declaration lines (`OPENQASM`, `include`, `barrier`, `creg`/`bit[N]`) are skipped.
+Parameterized gate calls (`rx(θ)`, `u3(θ,φ,λ)`, etc.) raise an error — they are
+not representable in the Clifford+T gate set.
+
+QASM 2.0 measure: `measure q[i] -> c[j]` → `Measurement(P"Z", j+1, [i+1])`
+QASM 3.0 measure: `meas[j] = measure q[i]` → `Measurement(P"Z", j+1, [i+1])`
+
 If no `measure` statement is present, all qubits are measured at the end: qubit `q`
 maps to classical bit `q`.
 """
 function parse_input(filepath::String)::Circuit
-    circuit = Circuit()
+    content = read(filepath, String)
+    dir     = dirname(abspath(filepath))
+
+    # gate_defs: includes first, then inline definitions (later wins)
+    gate_defs = Dict{String,GateDef}()
+    for m in eachmatch(r"include\s+\"([^\"]+)\"\s*;", content)
+        inc_path = joinpath(dir, m[1])
+        isfile(inc_path) && _load_gate_defs!(gate_defs, read(inc_path, String))
+    end
+    _load_gate_defs!(gate_defs, content)
+
+    circuit     = Circuit()
     n_qubits    = 0
     has_measure = false
-    version     = 2
+    in_gate_def = false
 
-    open(filepath) do file
-        for raw in eachline(file)
-            line = strip(raw)
-            isempty(line) && continue
-            startswith(line, "//") && continue
-            any(startswith(line, pfx) for pfx in ("include", "barrier")) && continue
+    for raw in split(content, '\n')
+        line = strip(replace(raw, r"\s*//.*$" => ""))
+        isempty(line) && continue
 
-            # detect OPENQASM version from header
-            m = match(r"^OPENQASM\s+(\d+)\.", line)
-            if m !== nothing
-                version = parse(Int, m[1])
-                continue
-            end
+        if in_gate_def
+            contains(line, "}") && (in_gate_def = false)
+            continue
+        end
+        if startswith(line, "gate ")
+            in_gate_def = !contains(line, "}")
+            continue
+        end
 
-            if version == 2
-                startswith(line, "creg") && continue
+        any(startswith(line, p) for p in ("OPENQASM", "barrier", "include", "creg", "bit[")) && continue
 
-                # qreg q[N];
-                m = match(r"^qreg\s+\w+\[(\d+)\];$", line)
-                if m !== nothing
-                    n_qubits = parse(Int, m[1])
-                    continue
-                end
+        # qubit count: v2 "qreg q[N];"  or  v3 "qubit[N] name;"
+        m = match(r"^(?:qreg\s+\w+|qubit)\[(\d+)\]", line)
+        m !== nothing && (n_qubits = parse(Int, m[1]); continue)
 
-                # measure q[i] -> c[j];
-                m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
-                if m !== nothing
-                    q = parse(Int, m[1])+1
-                    c = parse(Int, m[2])+1
-                    push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
-                    has_measure = true
-                    continue
-                end
-            else
-                startswith(line, "bit[") && continue
+        # measure: v2 "measure q[i] -> c[j];"
+        m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
+        if m !== nothing
+            push!(circuit, CircuitOp.Measurement(P"Z", parse(Int,m[2])+1, [parse(Int,m[1])+1]))
+            has_measure = true; continue
+        end
+        # measure: v3 "meas[j] = measure q[i];"
+        m = match(r"^\w+\[(\d+)\]\s*=\s*measure\s+\w+\[(\d+)\];$", line)
+        if m !== nothing
+            push!(circuit, CircuitOp.Measurement(P"Z", parse(Int,m[1])+1, [parse(Int,m[2])+1]))
+            has_measure = true; continue
+        end
 
-                # qubit[N] name;
-                m = match(r"^qubit\[(\d+)\]\s+\w+;$", line)
-                if m !== nothing
-                    n_qubits = parse(Int, m[1])
-                    continue
-                end
+        # reject parameterized gate calls
+        m = match(r"^(\w+)\s*\([^)]*\)\s+\w+\[", line)
+        m !== nothing && error("Parameterized gate '$(m[1])' is not supported — only Clifford+T gates are representable")
 
-                # meas[j] = measure q[i];
-                m = match(r"^\w+\[(\d+)\]\s*=\s*measure\s+\w+\[(\d+)\];$", line)
-                if m !== nothing
-                    c = parse(Int, m[1])+1
-                    q = parse(Int, m[2])+1
-                    push!(circuit, CircuitOp.Measurement(P"Z", c, [q]))
-                    has_measure = true
-                    continue
-                end
-            end
-
-            # cx q[ctrl],q[tgt];
-            m = match(r"^[Cc][Xx]\s+\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\];$", line)
-            if m !== nothing
-                ctrl = parse(Int, m[1])+1
-                tgt  = parse(Int, m[2])+1
-                push!(circuit, CircuitOp.PauliConditional(P"Z", [ctrl], P"X", [tgt]))
-                continue
-            end
-
-            # ccx Toffoli;
-            m = match(r"^[Cc][Cc][Xx]\s+\w+\[(\d+)\]\s*,\s*\w+\[(\d+)\],\s*\w+\[(\d+)\];$", line)
-            if m !== nothing
-                ctrl_1 = parse(Int, m[1])+1
-                ctrl_2 = parse(Int, m[2])+1
-                tgt    = parse(Int, m[3])+1
-                append!(circuit, _toffoli_ops(ctrl_1, ctrl_2, tgt))
-                continue
-            end
-
-            # single-qubit gate: <name> q[i];
-            m = match(r"^(\w+)\s+\w+\[(\d+)\];$", line)
-            if m !== nothing
-                gate = m[1]
-                q    = parse(Int, m[2])+1
-                append!(circuit, _single_qubit_ops(gate, q))
-                continue
-            end
+        # gate application: name q[i] or name q[i],q[j] or name q[i],q[j],q[k]
+        m = match(r"^(\w+)\s+(.+);$", line)
+        if m !== nothing
+            qubits = [parse(Int, i[1])+1 for i in eachmatch(r"\[(\d+)\]", m[2])]
+            isempty(qubits) || (_apply_gate!(circuit, String(m[1]), qubits, gate_defs); continue)
         end
     end
 
@@ -125,71 +120,98 @@ function parse_input(filepath::String)::Circuit
             push!(circuit, CircuitOp.Measurement(P"Z", q, [q]))
         end
     end
-
     return circuit
 end
 
 """
-    _toffoli_ops(ctrl_1::Int, ctrl_2::Int, tgt::Int) -> Vector{CircuitOp.Type}
+    _load_gate_defs!(defs, content)
 
-Return the 15-op decomposition of a Toffoli (CCX) gate into H, T, Tdg, and CX ops.
+Parse all `gate name(params) qubits { body }` blocks in `content` (QASM or .inc
+text) and store them in `defs`. Existing entries are overwritten, so later includes
+and inline definitions take precedence.
 
-# Arguments
-- `ctrl_1`: 1-indexed first control qubit
-- `ctrl_2`: 1-indexed second control qubit
-- `tgt`: 1-indexed target qubit
-
-# Returns
-15-element `Vector{CircuitOp.Type}` implementing the standard Toffoli decomposition.
+Gate names are normalised to lowercase. Comments are stripped before parsing.
 """
-function _toffoli_ops(ctrl_1::Int, ctrl_2::Int, tgt::Int)::Vector{CircuitOp.Type}
-    cx(c, t) = CircuitOp.PauliConditional(P"Z", [c], P"X", [t])
-    ops = CircuitOp.Type[]
-    append!(ops, _single_qubit_ops("h",   tgt))
-    push!(ops,   cx(ctrl_2, tgt))
-    append!(ops, _single_qubit_ops("tdg", tgt))
-    push!(ops,   cx(ctrl_1, tgt))
-    append!(ops, _single_qubit_ops("t",   tgt))
-    push!(ops,   cx(ctrl_2, tgt))
-    append!(ops, _single_qubit_ops("tdg", tgt))
-    push!(ops,   cx(ctrl_1, tgt))
-    append!(ops, _single_qubit_ops("t",   ctrl_2))
-    append!(ops, _single_qubit_ops("t",   tgt))
-    append!(ops, _single_qubit_ops("h",   tgt))
-    push!(ops,   cx(ctrl_1, ctrl_2))
-    append!(ops, _single_qubit_ops("t",   ctrl_1))
-    append!(ops, _single_qubit_ops("tdg", ctrl_2))
-    push!(ops,   cx(ctrl_1, ctrl_2))
-    return ops
-end
-
-# Internal: translate a single-qubit gate name to its CircuitOps.
-function _single_qubit_ops(gate::AbstractString, q::Int)::Vector{CircuitOp.Type}
-    if gate == "h"
-        return CircuitOp.Type[
-            CircuitOp.ExpQuatPiPauli(P"Z", [q]),
-            CircuitOp.ExpQuatPiPauli(P"X", [q]),
-            CircuitOp.ExpQuatPiPauli(P"Z", [q]),
-        ]
-    elseif gate == "s"
-        return [CircuitOp.ExpQuatPiPauli(P"Z",  [q])]
-    elseif gate == "sdg"
-        return [CircuitOp.ExpQuatPiPauli(-P"Z", [q])]
-    elseif gate == "t"
-        return [CircuitOp.ExpEighPiPauli(P"Z",  [q])]
-    elseif gate == "tdg"
-        return [CircuitOp.ExpEighPiPauli(-P"Z", [q])]
-    elseif gate == "x"
-        return [CircuitOp.ExpHalfPiPauli(P"X",  [q])]
-    elseif gate == "y"
-        return [CircuitOp.ExpHalfPiPauli(P"Y",  [q])]
-    elseif gate == "z"
-        return [CircuitOp.ExpHalfPiPauli(P"Z",  [q])]
-    else
-        error("Unsupported gate: $gate")
+function _load_gate_defs!(defs::Dict{String,GateDef}, content::AbstractString)
+    cleaned = replace(content, r"//[^\n]*" => "")
+    for m in eachmatch(r"gate\s+(\w+)\s*(?:\(([^)]*)\))?\s+([^{]+)\{([^}]*)\}", cleaned)
+        name   = lowercase(strip(m[1]))
+        params = m[2] !== nothing ? strip.(split(m[2], ',')) : String[]
+        qubits = strip.(split(strip(m[3]), ','))
+        body   = filter(!isempty, strip.(split(m[4], ';')))
+        defs[name] = GateDef(name, params, qubits, body)
     end
 end
 
+"""
+    _apply_gate!(circuit, name, qubit_indices, gate_defs)
+
+Expand gate `name` onto `qubit_indices` (1-indexed) into `circuit`.
+
+Primitive gates (`h`, `s`, `sdg`, `t`, `tdg`, `x`, `y`, `z`, `cx`, `id`) are
+mapped directly to `CircuitOp` variants. All other gates are looked up in
+`gate_defs` and expanded recursively. Errors if a gate is unknown or if its body
+reaches a parameterized primitive (e.g., `U`, `u1`) that is outside the Clifford+T
+gate set.
+"""
+function _apply_gate!(circuit::Circuit, name::String, qubit_indices::Vector{Int},
+                      gate_defs::Dict{String,GateDef})
+    lname = lowercase(name)
+
+    if lname in ("h", "s", "sdg", "t", "tdg", "x", "y", "z")
+        length(qubit_indices) == 1 || error("Gate '$name' takes 1 qubit, got $(length(qubit_indices))")
+        append!(circuit, _single_qubit_ops(lname, qubit_indices[1]))
+        return
+    elseif lname == "id"
+        return
+    elseif lname == "cx"
+        length(qubit_indices) == 2 || error("Gate 'cx' takes 2 qubits, got $(length(qubit_indices))")
+        push!(circuit, CircuitOp.PauliConditional(P"Z", [qubit_indices[1]], P"X", [qubit_indices[2]]))
+        return
+    end
+
+    haskey(gate_defs, lname) ||
+        error("Unknown gate '$name' — not a Clifford+T primitive and not defined in any loaded .inc file")
+
+    def = gate_defs[lname]
+    length(qubit_indices) == length(def.qubits) ||
+        error("Gate '$name' expects $(length(def.qubits)) qubits, got $(length(qubit_indices))")
+    qubit_map = Dict(zip(def.qubits, qubit_indices))
+
+    for stmt in def.body
+        stmt = strip(stmt)
+        isempty(stmt) && continue
+        if match(r"^\w+\s*\(", stmt) !== nothing
+            error("Gate '$(def.name)' expands to parameterized primitive '$(split(stmt,'(')[1])' — not representable in the Clifford+T gate set")
+        end
+        m = match(r"^(\w+)\s+(.+)$", stmt)
+        m !== nothing || error("Cannot parse body statement in gate '$(def.name)': '$stmt'")
+        _apply_gate!(circuit, String(m[1]),
+                     [qubit_map[strip(String(s))] for s in split(m[2], ',')],
+                     gate_defs)
+    end
+end
+
+"""
+    _single_qubit_ops(gate, q) -> Vector{CircuitOp.Type}
+
+Translate a primitive single-qubit gate name to its `CircuitOp` sequence.
+Supported: `h`, `s`, `sdg`, `t`, `tdg`, `x`, `y`, `z`.
+"""
+function _single_qubit_ops(gate::AbstractString, q::Int)::Vector{CircuitOp.Type}
+    Q(p) = CircuitOp.ExpQuatPiPauli(p, [q])
+    E(p) = CircuitOp.ExpEighPiPauli(p, [q])
+    H(p) = CircuitOp.ExpHalfPiPauli(p, [q])
+    gate == "h"   && return [Q(P"Z"), Q(P"X"), Q(P"Z")]
+    gate == "s"   && return [Q(P"Z")]
+    gate == "sdg" && return [Q(-P"Z")]
+    gate == "t"   && return [E(P"Z")]
+    gate == "tdg" && return [E(-P"Z")]
+    gate == "x"   && return [H(P"X")]
+    gate == "y"   && return [H(P"Y")]
+    gate == "z"   && return [H(P"Z")]
+    error("Unsupported primitive gate: $gate")
+end
 
 """
     save(result::CompilerState, filepath::String)
