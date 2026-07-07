@@ -916,39 +916,40 @@ function plot_cooccurrence(h::KaHyPar.HyperGraph)::Figure
 end
 
 """
-    plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int}) -> Figure
+    plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int};
+                  node_names::Union{Nothing, Vector{String}} = nothing) -> Figure
 
 Incidence matrix heatmap with nodes and hyperedges reordered to expose partition structure.
 
 # Arguments
 - `h`: KaHyPar hypergraph
 - `parts`: partition assignment vector of length `h.n_vertices` (0-based block ids, as returned by KaHyPar)
+- `node_names`: optional display names for nodes, length `h.n_vertices`, in original node order.
+  If provided, x-axis tick labels show names instead of positional indices.
 
 # Ordering
 - **Nodes (x-axis)**: sorted by `parts` block id — all nodes in block 0 first, then
-  block 1, etc. Red vertical lines mark the block boundaries.
+  block 1, etc. Each block is shaded with a distinct background color.
 - **Hyperedges (y-axis)**: non-cut hyperedges first, grouped by their partition block
-  (well-defined since all their nodes are in the same block) and sorted by `e_weights`
-  descending within each block. Cut hyperedges are placed at the top, also sorted by
-  `e_weights` descending.
+  and sorted by `e_weights` descending within each block. Cut hyperedges are placed
+  at the top, also sorted by `e_weights` descending.
 
 # Returns
-CairoMakie Figure. Cell color encodes `e_weights[e]` for member nodes, white for
-non-members. Cut hyperedges (members spanning >1 partition block) are highlighted
-with a semi-transparent red overlay. The title reports the cut/non-cut counts.
-Hyperedge y-axis labels are reordered positions (1-based), not original ids.
+CairoMakie Figure. Member cells are colored by their node's partition block;
+non-member cells show only the light background tint of their block. Cut hyperedges
+are visible as rows with mixed colors. The title reports the cut/non-cut counts.
+Hyperedge y-axis labels are reordered positions (1-based).
 
 # Reading the plot
 - **Colored cell at column i, row e**: node i is a member of hyperedge e; darkness
   reflects the hyperedge weight `e_weights[e]`.
 - **White cell**: node i is not a member of hyperedge e.
-- **Colored band confined within one vertical block**: a non-cut hyperedge — all its
-  nodes are in the same partition.
+- **Column background color**: indicates which partition block the node belongs to.
 - **Red-tinted row**: a cut hyperedge whose members span more than one partition block.
-  Its colored cells will cross at least one red vertical line. These are the edges
-  penalized by the min-cut objective.
+  These are the edges penalized by the min-cut objective.
 """
-function plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int})::Figure
+function plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int};
+                        node_names::Union{Nothing, Vector{String}} = nothing)::Figure
     n = Int(h.n_vertices)
     m = length(h.edge_indices) - 1
     num_blocks = maximum(parts) + 1
@@ -966,7 +967,6 @@ function plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int})::Figure
         end
         node_parts = [parts[v+1] for v in verts]
         is_cut[e] = length(unique(node_parts)) > 1
-        # cut edges get sentinel num_blocks so they sort to the top (largest key)
         edge_block[e] = is_cut[e] ? num_blocks : node_parts[1]
     end
 
@@ -977,34 +977,95 @@ function plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int})::Figure
     is_cut_r = is_cut[edge_perm]
     parts_r = parts[node_perm]
 
+    block_colors = Makie.wong_colors()
+
     n_cut = sum(is_cut)
-    fig = Figure(size=(900, 700))
+    fig = Figure(size=(1050, 750))
+
     ax = Axis(fig[1, 1],
-        title="Incidence matrix — $(m - n_cut) non-cut, $n_cut cut hyperedges",
-        xlabel="Node (original id)", ylabel="Hyperedge (reordered)")
+        title="Incidence matrix — $(m - n_cut) local, $n_cut distributed measurements",
+        titlesize=30,
+        xlabel="Qubit", xlabelsize=25,
+        ylabel="Pauli Product Measurement", ylabelsize=25,
+        xticklabelsize=20, yticklabelsize=20)
 
-    hm = heatmap!(ax, Hr, colormap=:Blues)
+    # Insert a blank separator row between non-cut and cut groups (if both exist)
+    gap_row  = (n_cut > 0 && n_cut < m) ? (m - n_cut + 1) : 0  # display-space row for gap
+    m_disp   = gap_row > 0 ? m + 1 : m
 
-    # red overlay on cut hyperedge rows
-    for e in 1:m
-        is_cut_r[e] && poly!(ax, Rect(0.5, e - 0.5, n, 1.0), color=(:red, 0.15))
+    # Build per-cell color image with optional gap row
+    img = Matrix{RGBAf}(undef, n, m_disp)
+    for i in 1:n, e in 1:m_disp
+        if e == gap_row
+            img[i, e] = RGBAf(1f0, 1f0, 1f0, 1f0)  # opaque white gap
+        else
+            e_orig = (gap_row > 0 && e > gap_row) ? e - 1 : e
+            c = block_colors[parts_r[i] + 1]
+            img[i, e] = Hr[i, e_orig] > 0 ? RGBAf(c.r, c.g, c.b, 1.0f0) : RGBAf(0f0, 0f0, 0f0, 0f0)
+        end
     end
 
-    # partition boundary lines on node axis
-    for i in 1:n-1
-        parts_r[i] != parts_r[i+1] && vlines!(ax, i + 0.5, color=:red, linewidth=1.5)
+    # Light partition background (full display height)
+    i = 1
+    while i <= n
+        j = i
+        while j <= n && parts_r[j] == parts_r[i]; j += 1; end
+        blk = parts_r[i] + 1
+        poly!(ax, Rect(Float64(i) - 0.5, 0.5, Float64(j - i), Float64(m_disp)),
+              color=(block_colors[blk], 0.12))
+        i = j
     end
 
-    node_stride = max(1, n ÷ 20)
-    node_tick_pos = collect(1:node_stride:n)
-    ax.xticks = (node_tick_pos, string.(node_perm[node_tick_pos] .- 1))
+    image!(ax, 0.5 .. Float64(n) + 0.5, 0.5 .. Float64(m_disp) + 0.5, img, interpolate=false)
+
+    hidespines!(ax, :t, :r)
+
+    # Group labels in right axis — tick-style bracket (vertical bar + end serifs)
+    ax_lbl = Axis(fig[1, 2]; width=110)
+    hidedecorations!(ax_lbl)
+    hidespines!(ax_lbl)
+    xlims!(ax_lbl, 0, 1)
+    linkyaxes!(ax_lbl, ax)
+    if n_cut > 0 && n_cut < m
+        n_local   = m - n_cut
+        mid_local = n_local / 2.0 + 0.5
+        mid_dist  = Float64(gap_row) + 0.5 + Float64(n_cut) / 2.0
+        x_bar = 0.18; x_serif = 0.30
+        for (y_bot, y_top, label, mid) in [
+                (0.5, Float64(n_local)+0.5,             "Local",       mid_local),
+                (Float64(gap_row)+0.5, Float64(m_disp)+0.5, "Distributed", mid_dist)]
+            lines!(ax_lbl, [x_bar, x_serif, x_serif, x_bar],
+                        [y_bot, y_bot, y_top, y_top],
+                color=:gray40, linewidth=1.5)
+            text!(ax_lbl, 0.55, mid; text=label, align=(:center, :center), fontsize=24, rotation=π/2)
+        end
+    end
+
+    # X: partition block starts + last node
+    block_tick_pos = [findfirst(==(b), parts_r) for b in 0:num_blocks-1]
+    block_tick_pos = Int[p for p in block_tick_pos if p !== nothing]
+    last(block_tick_pos) != n && push!(block_tick_pos, n)
+    tick_labels = if node_names !== nothing
+        node_names[node_perm[block_tick_pos]]
+    else
+        string.(block_tick_pos)
+    end
+    ax.xticks = (block_tick_pos, tick_labels)
     ax.xticklabelrotation = π / 2
 
-    edge_stride = max(1, m ÷ 20)
-    edge_tick_pos = collect(1:edge_stride:m)
-    ax.yticks = (edge_tick_pos, string.(edge_tick_pos))
+    # Y: sparse interior + first and last label
+    edge_stride = max(4, m ÷ 8)
+    tick_data = unique(vcat(1, collect(1:edge_stride:m), m))
+    tick_disp = [e <= (m - n_cut) ? e : e + 1 for e in tick_data]
+    ax.yticks = (tick_disp, string.(tick_data))
 
-    Colorbar(fig[1, 2], hm, label="Hyperedge weight")
+    legend_elements = [PolyElement(color=(block_colors[b], 0.18), strokecolor=:transparent)
+                       for b in 1:num_blocks]
+    legend_labels = ["QPU $(b-1)" for b in 1:num_blocks]
+    Legend(fig[2, 1], legend_elements, legend_labels,
+        framevisible=false, labelsize=25, tellwidth=false,
+        rowgap=4, patchsize=(16, 16), nbanks=min(num_blocks + 1, 4))
+    rowsize!(fig.layout, 2, Auto(0.12))
 
     return fig
 end
