@@ -12,7 +12,7 @@ Get measurement result distribution of given input circuit and input state by ru
 
 Return calculated result distribution and raw result count
 """
-function get_distribution(input_circuit::Circuit, input_state::Union{Stabilizer, Nothing}=nothing, num_shots::Int=1000)
+function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stabilizer, Nothing}=nothing, num_shots::Int=1000) where R<:AbstractRuntime
     num_bits = get_circuit_width(input_circuit)
     len = 2^num_bits
     distribution = zeros(Int, len)
@@ -20,7 +20,7 @@ function get_distribution(input_circuit::Circuit, input_state::Union{Stabilizer,
     i=1
     while i<num_shots
         circuit = copy(input_circuit)
-        result_i=run(circuit, input_state)
+        result_i=run(circuit, rt, input_state)
         register=result_i.compiler_state.classical_register
         final_measurement_results=register[1:num_bits]
         bit_str = join(Int.(final_measurement_results))
@@ -326,4 +326,36 @@ function hyperedge_size_distribution(h::KaHyPar.HyperGraph)::Dict{Int,Int}
         dist[s] = get(dist, s, 0) + 1
     end
     return dist
+end
+##
+"""
+    HyperedgeConnectivity(h::KaHyPar.HyperGraph, parts::Vector{Int64}) -> Int64
+
+Compute the connectivity (λ-1) metric: sum over hyperedges of
+(number of distinct partition blocks spanned - 1).
+
+# Arguments
+- `h`: a KaHyPar hypergraph with CSR-encoded edge structure
+- `parts`: partition assignment vector (1-indexed); `parts[v+1]` gives the
+  0-based block ID of 0-indexed vertex `v`; length must equal `h.n_vertices`
+
+# Returns
+Sum of (λ_e - 1) over all hyperedges e, where λ_e is the number of blocks
+that hyperedge e touches. Equals `HyperedgeCut` only when every cut edge
+spans exactly 2 blocks.
+"""
+function HyperedgeConnectivity(h::KaHyPar.HyperGraph, parts::Vector{Int64})::Int64
+    n_edges = length(h.edge_indices) - 1
+    seen = Set{Int64}()
+    total = 0
+    for e in 1:n_edges
+        start = Int(h.edge_indices[e]) + 1
+        stop  = Int(h.edge_indices[e + 1])
+        empty!(seen)
+        for i in start:stop
+            push!(seen, parts[Int(h.hyperedges[i]) + 1])
+        end
+        total += length(seen) - 1
+    end
+    return total
 end
