@@ -31,16 +31,20 @@ Get initial Execution State using input circuit and input state.
 """
 ##
 function build_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
-    validate_circuit(input_circuit)
-    if isnothing(input_state)
-        input_state=Stabilizer(one(Stabilizer, get_circuit_width(input_circuit); basis=:Z))
+    if !isempty(input_circuit)
+        validate_circuit(input_circuit)
+        if isnothing(input_state)
+            input_state=Stabilizer(one(Stabilizer, get_circuit_width(input_circuit); basis=:Z))
+        else
+            validate_input(input_circuit,input_state)
+            input_state=input_state
+        end
+        shared = build_shared(input_circuit, input_state)
+        rt_data = build_rt_data(input_circuit, input_state, rt)
+        CompilerState(; shared..., runtime=rt_data)
     else
-        validate_input(input_circuit,input_state)
-        input_state=input_state
+        CompilerState(MeasurementResult.Type[], S"", Union{Nothing,Bool}[], input_circuit, 1, rt)
     end
-    shared = build_shared(input_circuit, input_state)
-    rt_data = build_rt_data(input_circuit, input_state, rt)
-    CompilerState(; shared..., runtime=rt_data)
 end
 ##
 function build_shared(input_circuit::Circuit, input_state::Stabilizer)
