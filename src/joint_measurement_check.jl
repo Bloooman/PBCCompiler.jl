@@ -65,7 +65,7 @@ end
 Perform Joint Measurement on a CircuitOp.Measurement
 
 It returns
-- a MeasurementResult with corresponding MeasurementResultType
+- a MeasurementResult with corresponding MeasurementResultType (true denotes 0, false denotes 1)
 - the index of the row where the non-commuting operator was (that row is now equal to pauli; its phase is not updated and for a faithful measurement simulation it needs to be randomized by the user)
 - a GeneralizedStabilizer represents the quantum state after measurement
 """

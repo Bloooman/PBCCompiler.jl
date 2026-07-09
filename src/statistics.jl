@@ -21,7 +21,7 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
     while i<num_shots
         circuit = copy(input_circuit)
         result_i=run(circuit, rt, input_state)
-        register=result_i.compiler_state.classical_register
+        register=result_i.classical_register
         final_measurement_results=register[1:num_bits]
         bit_str = join(Int.(final_measurement_results))
         index = parse(Int, bit_str; base=2) + 1
