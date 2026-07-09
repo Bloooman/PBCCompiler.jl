@@ -89,7 +89,8 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
                 Q_2=ExpQuatPiPauli(p_2,op.qubits)
                 pushfirst!(state.circuit,Q_1,Q_2,Q_1)
                 preprocess_circuit(state.circuit)
-                return (ClassicalRandomRes(op.pauli, result), state)
+                # Store the full-width Pauli so all result types share absolute qubit positions
+                return (ClassicalRandomRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
             else
                 (rt, result) = quantum_measurement(rt, op, num_qubits)
                 paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
@@ -104,7 +105,8 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
         else
             result = Bool(projection[3]>>1)
             @debug "This measurement outputs Classical Deterministic Result" _group=:api
-            return (ClassicalDetermRes(op.pauli, result), state)
+            # Store the full-width Pauli so all result types share absolute qubit positions
+            return (ClassicalDetermRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
         end
     end
 end
@@ -130,7 +132,8 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
                 Q_2=ExpQuatPiPauli(p_2,op.qubits)
                 pushfirst!(state.circuit,Q_1,Q_2,Q_1)
                 preprocess_circuit(state.circuit)
-                return (ClassicalRandomRes(op.pauli, result), state)
+                # Store the full-width Pauli so all result types share absolute qubit positions
+                return (ClassicalRandomRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
             else
                 paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
                 a_stabilizer= Stabilizer([paulistring])
@@ -143,7 +146,8 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
         else
             result = Bool(projection[3]>>1)
             @debug "This measurement outputs Classical Deterministic Result" _group=:api
-            return (ClassicalDetermRes(op.pauli, result), state)
+            # Store the full-width Pauli so all result types share absolute qubit positions
+            return (ClassicalDetermRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
         end
     end
 end

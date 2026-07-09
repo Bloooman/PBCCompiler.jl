@@ -1,5 +1,16 @@
 module PBCCompiler
 
+# `run` and `to_result` are deliberately not exported: `run` would shadow
+# `Base.run` for downstream users; call them qualified as `PBCCompiler.run`.
+export Circuit, CircuitOp, MeasurementResult,
+    AbstractRuntime, SimRuntime, DummyRuntime, TraversalRuntime,
+    CompilerState, CompilationResult,
+    preprocess_circuit, traversal, affectedqubits,
+    parse_input, save_result, load_result,
+    random_test_circuit,
+    get_distribution, get_graph, get_hypergraph, weight_std_graph,
+    circuitplot, circuitplot!, circuitplot_axis
+
 include("type.jl")
 include("io.jl")
 include("traversal.jl")

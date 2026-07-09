@@ -152,7 +152,14 @@ When quantum_only is false, plot interaction hypergraph among all qubits using a
 When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
 function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
-    measurements = quantum_only ? result.QPU_workload : result.measurement_results
+    measurements = quantum_only ? result.QPU_workload :
+        [result.measurement_results[i] for i in eachindex(result.measurement_results)
+         if isassigned(result.measurement_results, i)]
+    # Fix the vertex count explicitly; inferring it from the sparse indices would
+    # silently drop qubits that no measurement touches
+    num_v = quantum_only ?
+        (isempty(measurements) ? 0 : maximum(nqubits(m.pauli) for m in measurements)) :
+        size(result.stabilizer_group, 2)
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
@@ -170,8 +177,7 @@ function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
     end
     V = Int.(ones(length(I)))
     edge_weights=collect(values(w))
-    A = sparse(I, J, V)
-    num_v, num_e = size(A)
+    A = sparse(I, J, V, num_v, length(edge_weights))
     h = KaHyPar.HyperGraph(A,ones(Int, num_v),edge_weights)
     return (A, h)
 end

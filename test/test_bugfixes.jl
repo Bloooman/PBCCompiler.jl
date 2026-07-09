@@ -137,4 +137,63 @@ end
     end
 end
 
+@testset "imaginary-phase Paulis are rejected" begin
+    @test_throws ArgumentError validate_CircuitOp(ExpQuatPiPauli(im * P"X", [1]))
+    @test_throws ArgumentError validate_CircuitOp(Measurement(-im * P"Z", 1, [1]))
+    # Real phases remain valid
+    validate_CircuitOp(ExpQuatPiPauli(-P"X", [1]))
+    @test true
+end
+
+@testset "random_test_circuit only generates Hermitian Paulis" begin
+    circuit = random_test_circuit(50, 3)
+    for op in circuit
+        if !isa_variant(op, CircuitOp.PauliConditional)
+            @test iseven(op.pauli.phase[])
+        end
+    end
+end
+
+@testset "traversal deletes both ops on empty-tuple result" begin
+    cancel_all(op1, op2) = ()
+    circuit = Circuit([Pauli(P"X", [1]), Pauli(P"Y", [1])])
+    traversal(circuit, cancel_all, :right)
+    @test isempty(circuit)
+    # :left direction, deletion at the tail must not read out of bounds
+    circuit = Circuit([Pauli(P"X", [1]), Pauli(P"Y", [1]), Pauli(P"Z", [1])])
+    delete_yz(op1, op2) = (op1.pauli == P"Y" && op2.pauli == P"Z") ? () : nothing
+    traversal(circuit, delete_yz, :left)
+    @test length(circuit) == 1 && circuit[1].pauli == P"X"
+end
+
+@testset "inverse rotations cancel instead of leaving a placeholder" begin
+    merge_ops = PBCCompiler.merge_ops
+    # pi/8 followed by -pi/8 about the same axis is the identity
+    circuit = Circuit([ExpEighPiPauli(P"Z", [1]), ExpEighPiPauli(-P"Z", [1])])
+    merge_ops(circuit)
+    @test isempty(circuit)
+    # two pi/2 rotations about the same axis are a global phase
+    circuit = Circuit([ExpHalfPiPauli(P"Z", [1]), ExpHalfPiPauli(P"Z", [1])])
+    merge_ops(circuit)
+    @test isempty(circuit)
+    # same-sign pi/8 pair still merges into a pi/4 rotation
+    circuit = Circuit([ExpEighPiPauli(P"Z", [1]), ExpEighPiPauli(P"Z", [1])])
+    merge_ops(circuit)
+    @test length(circuit) == 1
+    @test isa_variant(circuit[1], CircuitOp.ExpQuatPiPauli)
+end
+
+@testset "get_hypergraph keeps isolated qubits in the vertex set" begin
+    circuit = Circuit([
+        ExpQuatPiPauli(P"X", [1]),
+        ExpEighPiPauli(P"Z", [2]),
+        Measurement(P"Z", 1, [1]),
+        Measurement(P"Z", 2, [2]),
+    ])
+    state = run(copy(circuit), DummyRuntime())
+    result = to_result(state)
+    (A, h) = PBCCompiler.get_hypergraph(result)
+    @test size(A, 1) == size(result.stabilizer_group, 2)
+end
+
 end

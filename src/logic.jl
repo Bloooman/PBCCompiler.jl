@@ -20,16 +20,15 @@ function preprocess_circuit(circuit::Circuit)
 end
 
 """
-    get_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
+    build_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
 
-Get initial Execution State using input circuit and input state.
+Build the initial `CompilerState` from an input circuit and input state.
 
-# Fields
-- `circuit`: input circuit for compilation
-- 'rt': runtime for compilation
-- `input_state`: initial qubit state
+# Arguments
+- `input_circuit`: input circuit for compilation
+- `rt`: runtime for compilation
+- `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
-##
 function build_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
     if !isempty(input_circuit)
         validate_circuit(input_circuit)
@@ -74,9 +73,9 @@ function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::R) w
 end
 
 """
-    do_quantum_step(state::S) -> S where S <: AbstractSimState
+    do_quantum_step(state::CompilerState) -> CompilerState
 
-Perform the next joint measurement and update ComputerState accordingly
+Perform the next joint measurement and update the `CompilerState` accordingly.
 """
 function do_quantum_step(state::CompilerState)
     circuit = state.circuit
@@ -117,14 +116,18 @@ function to_result(state::CompilerState)
 end
 
 """
-    run(input_circuit::Circuit, rt::S, partitioner::NoPartitioner, input_state::Union{Stabilizer, Nothing}=nothing) -> S where S <: AbstractRuntime
+    run(input_circuit::Circuit, rt::AbstractRuntime, input_state::Union{Stabilizer, Nothing}=nothing) -> CompilerState
 
-Run compute/compile with provided circuit and input state(described by stabilizer group)
-# Fields
-- `circuit`: input circuit for compilation
-- `input_state`: initial qubit state
-- `dummy`: flag for running dummy simulation
-- `outcome_probs`: 2-element distribution vector [p_p1, p_m1]. p_p1 is the probability measuring +1; p_m1 is the probability measuring -1
+Compute/compile the provided circuit against an input state (described by a stabilizer
+group) and return the final `CompilerState`.
+
+This function is not exported because it shadows `Base.run`; call it as
+`PBCCompiler.run`.
+
+# Arguments
+- `input_circuit`: input circuit for compilation
+- `rt`: runtime that supplies measurement outcomes (`SimRuntime`, `DummyRuntime`, `TraversalRuntime`)
+- `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
     state = build_compilerstate(input_circuit, rt, input_state)

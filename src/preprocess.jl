@@ -27,6 +27,11 @@ function validate_CircuitOp(op::CircuitOp.Type)
             if length(p) != length(q)
                 throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
             end
+            # Odd phase exponents (0x01/0x03) denote ±i·P, which is not Hermitian
+            # and therefore not a valid rotation axis or measurement observable
+            if isodd(p.phase[])
+                throw(ArgumentError("$name($p, $q): Pauli strings with imaginary phase (±i) are not Hermitian and cannot define a rotation or measurement."))
+            end
         end
     end
 end
@@ -177,7 +182,9 @@ function remove_clifford(circuit::Circuit)
 end
 
 """
-    group_nonclifford(circuit::Circuit)->Nothing
+    remove_nonclifford(circuit::Circuit)->Nothing
+
+Replace every non-Clifford rotation with its magic-state gadget (see `gadgetize`).
 
 **Kernel class:** expanding transformation (1→4)
 **Traversal:** inline — traversal and kernel logic are co-located in this

@@ -2,10 +2,17 @@ using QuantumClifford: PauliOperator, @P_str, Stabilizer, GeneralizedStabilizer
 using Moshi.Data: @data, variant_name
 using Moshi.Derive: @derive
 ##
-"""TODO docstring"""
+"""Type of a QuantumClifford Pauli operator as produced by the `P"..."` string macro."""
 const P = typeof(P"XYZ")
 
-"""TODO docstring"""
+"""
+Algebraic data type of the circuit operations understood by the compiler.
+
+Variants: `Measurement`, `Pauli`, `ExpHalfPiPauli`, `ExpQuatPiPauli`, `ExpEighPiPauli`,
+`PrepMagic`, `PauliConditional`, and `BitConditional`. Use
+`Moshi.Data.isa_variant(op, CircuitOp.Pauli)` (not `op isa CircuitOp.Pauli`) to check
+which variant an operation is.
+"""
 @data CircuitOp begin
     """Measurement of pauli string P (ie., + XY) on qubits in vector at field "qubits" (ie.,[1,3]), measurement result is stored in classical bit denoted in "bit" """
     struct Measurement
@@ -13,7 +20,7 @@ const P = typeof(P"XYZ")
         bit::Int
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Apply the Pauli gate given by string `pauli` to the qubits in `qubits`."""
     struct Pauli
         pauli::P
         qubits::Vector{Int}
@@ -33,7 +40,7 @@ const P = typeof(P"XYZ")
         pauli::P
         qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Prepare a magic (|T⟩) ancilla state on `qubit`, entangling with the register in `qubits`."""
     struct PrepMagic
         qubit::Int
         qubits::Vector{Int}
@@ -45,7 +52,7 @@ const P = typeof(P"XYZ")
         target_pauli::P
         target_qubits::Vector{Int}
     end
-    """TODO docstring"""
+    """Apply the wrapped operation `op` only if classical register bit `bit` reads 1."""
     struct BitConditional
         op::CircuitOp
         bit::Int
@@ -54,7 +61,7 @@ end
 
 @derive CircuitOp[Hash, Eq, Show]
 
-"""TODO docstring"""
+"""Sequence of abstract circuit operations."""
 const Circuit = Vector{CircuitOp.Type}
 using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiPauli, PrepMagic, PauliConditional, BitConditional
 ##
@@ -88,8 +95,10 @@ using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 
 @derive MeasurementResult[Hash, Eq, Show]
 ##
+"""Supertype of the measurement backends a circuit can be compiled/computed against."""
 abstract type AbstractRuntime end
 
+"""Runtime that simulates magic-state measurements with QuantumClifford's `GeneralizedStabilizer`."""
 struct SimRuntime <: AbstractRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Union{GeneralizedStabilizer, Nothing}
@@ -97,16 +106,18 @@ end
 
 SimRuntime() = SimRuntime(nothing)
 
+"""Runtime that replaces quantum measurements with classical coin flips of a fixed bias."""
 struct DummyRuntime <: AbstractRuntime
-    """Weight vector describes sampling probability between +1 and -1 measurement results"""
-    p1_outcome_probs::Float16
+    """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
+    p1_outcome_probs::Float64
 end
 
 DummyRuntime() = DummyRuntime(0.5)
 
+"""Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime
-    """Weight vector describes sampling probability between +1 and -1 measurement results"""
-    p1_outcome_probs::Float16
+    """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
+    p1_outcome_probs::Float64
 end
 
 TraversalRuntime() = TraversalRuntime(1)
@@ -127,26 +138,27 @@ Base.@kwdef struct CompilerState{R<:AbstractRuntime}
     circuit::Circuit
     """Denote the Pauli Product Measurement that is being processed"""
     instruction_pointer::Int
-    """TODO docstring"""
+    """Runtime backend used to obtain measurement results"""
     runtime::R
 end
 
 function Base.copy(s::CompilerState)
+    # runtime is aliased: all runtimes are immutable structs updated via @reset
     CompilerState(
-        copy(s.measurement_results),   # new Vector, same elements
-        copy(s.stabilizer_group),      # new container — check this is actually mutable/needs it
-        copy(s.classical_register),    # new Vector
-        copy(s.circuit),                     # intentionally aliased — read-only per your compilation pass
-        s.instruction_pointer,         # Int — copy() would be a no-op anyway
-        s.runtime                      # alias unless TraversalRuntime is itself mutated in place
+        copy(s.measurement_results),
+        copy(s.stabilizer_group),
+        copy(s.classical_register),
+        copy(s.circuit),
+        s.instruction_pointer,
+        s.runtime
     )
 end
 ##
-"""TODO docstring"""
+"""Final outcome of compiling/running a circuit, produced by [`to_result`](@ref)."""
 struct CompilationResult
     """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
     measurement_results::Vector{MeasurementResult.Type}
-    """TODO docstring"""
+    """Joint Pauli measurements that must be executed on the QPU, restricted to the magic-state qubits"""
     QPU_workload::Vector{MeasurementResult.Type}
     """
     Stabilizer object that describes current quantum state
@@ -154,7 +166,7 @@ struct CompilationResult
     The tableau is not square (full-rank) before compilation is finished
     """
     stabilizer_group::Stabilizer
-    """TODO docstring"""
+    """Number of sequential joint measurements the QPU must perform"""
     QPUDuration::Int
 end
 ##

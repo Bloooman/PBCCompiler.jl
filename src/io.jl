@@ -2,9 +2,6 @@ using JLD2
 using QuantumClifford
 import Base: show
 
-"""Sequence of abstract circuit operations."""
-const Circuit = Vector{CircuitOp.Type}
-
 """
 Parsed gate definition from a `.inc` file or an inline `gate` block.
 
@@ -214,7 +211,7 @@ function _single_qubit_ops(gate::AbstractString, q::Int)::Vector{CircuitOp.Type}
 end
 
 """
-    save(result::CompilerState, filepath::String)
+    save_result(result::CompilerState, filepath::String)
 
 Save transient compiler state fields to a `.jld2` file for debugging.
 
@@ -239,7 +236,7 @@ function save_result(result::CompilerState, filepath::String)
 end
 
 """
-    save(r::CompilationResult, filepath::String)
+    save_result(r::CompilationResult, filepath::String)
 
 Save all fields of a `CompilationResult` to a `.jld2` file at `filepath`.
 
@@ -261,9 +258,9 @@ function save_result(r::CompilationResult, filepath::String)
 end
 
 """
-    load(filepath::String) -> CompilationResult
+    load_result(filepath::String) -> CompilationResult
 
-Load a `CompilationResult` from a `.jld2` file previously written by `save`.
+Load a `CompilationResult` from a `.jld2` file previously written by `save_result`.
 
 # Arguments
 - `filepath`: path to a `.jld2` file
