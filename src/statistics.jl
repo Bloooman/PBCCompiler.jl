@@ -13,55 +13,55 @@ Get measurement result distribution of given input circuit and input state by ru
 Return calculated result distribution and raw result count
 """
 function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stabilizer, Nothing}=nothing, num_shots::Int=1000) where R<:AbstractRuntime
-    num_bits = get_circuit_width(input_circuit)
+    num_bits = get_bit_number(input_circuit)
+    num_bits > 30 && throw(ArgumentError("Circuit uses $num_bits classical bits; the 2^$num_bits-entry distribution would not fit in memory"))
     len = 2^num_bits
     distribution = zeros(Int, len)
     data = zeros(Int, num_shots)
-    i=1
-    while i<num_shots
+    for i in 1:num_shots
         circuit = copy(input_circuit)
         result_i=run(circuit, rt, input_state)
         register=result_i.classical_register
         final_measurement_results=register[1:num_bits]
+        any(isnothing, final_measurement_results) &&
+            error("Classical bits 1:$num_bits were not all measured; register: $register")
         bit_str = join(Int.(final_measurement_results))
         index = parse(Int, bit_str; base=2) + 1
         distribution[index]+=1
         data[i]=index-1
-        i+=1
     end
     return (distribution, data)
 end
 
 """
-    get_graph(result::S, type=nothing) where S <: AbstractRuntime
+    get_graph(result::CompilationResult, quantum_only::Bool=false) -> SimpleWeightedGraph
 
-Extract qubit interaction graph from result.compiler_state
+Extract the qubit interaction graph from a `CompilationResult`.
 
-When quantum_only is false, plot interaction hypergraph among all qubits using all Pauli Product Measurement
-When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
+When `quantum_only` is false, build the interaction graph among all qubits using all
+Pauli Product Measurements. When `quantum_only` is true, build the interaction graph of
+injected qubits that actually live on the QPU (the `QPU_workload` measurements, whose
+Pauli strings cover only the magic-state qubits).
 """
 function get_graph(result::CompilationResult, quantum_only::Bool=false)
-    num_nodes=length(result.compiler_state.stabilizer_group[1])
+    measurements = quantum_only ? result.QPU_workload :
+        [result.measurement_results[i] for i in eachindex(result.measurement_results)
+         if isassigned(result.measurement_results, i)]
+    num_nodes = quantum_only ?
+        (isempty(measurements) ? 0 : maximum(nqubits(m.pauli) for m in measurements)) :
+        size(result.stabilizer_group, 2)
     g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
-    measurements = quantum_only ? result.measurement_results : result.QPU_workload
     for m in measurements
         p=m.pauli
         for i in 1:length(p)
-            @debug(i)
             if xbit(p)[i] || zbit(p)[i]
                 for j in i+1:length(p)
-                    @debug(j)
                     if xbit(p)[j] || zbit(p)[j]
                         current_w = get_weight(g, i, j)
                         add_edge!(g,i,j,current_w + 1)
                     end
                 end
             end
-        end
-    end
-    if quantum_only
-        for h in 1:length(1 - result.compiler_state.num_gadgets)
-            rem_vertex!(g,1)
         end
     end
     return g
@@ -113,22 +113,20 @@ function variant_graph(graphs::Vector{<:SimpleWeightedGraph})::SimpleWeightedGra
 end
 ##
 """
-    weight_std_graph(graphs::Vector{<:SimpleWeightedGraph})
+    weight_std_graph(input_circuit::Circuit, rt::AbstractRuntime, input_state=nothing; quantum_only=false, num_shots=1000)
 
-Given a list of `SimpleWeightedGraph` objects with the same number of vertices,
-return a new `SimpleWeightedGraph` whose edge weights are the standard deviation
-of each edge's weight across the input graphs.
+Run the circuit `num_shots` times, extract the interaction graph of each shot with
+[`get_graph`](@ref), and return a new `SimpleWeightedGraph` whose edge weights are the
+standard deviation of each edge's weight across the shots.
 
-Edges absent from a graph in the list contribute weight 0 to the computation.
+Edges absent from a shot's graph contribute weight 0 to the computation.
 """
-function weight_std_graph(input_circuit::Circuit, input_state::Stabilizer; quantum_only::Bool=false, num_shots::Int=1000)
+function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stabilizer, Nothing}=nothing; quantum_only::Bool=false, num_shots::Int=1000) where R<:AbstractRuntime
     graphs =  Vector{SimpleWeightedGraph}(undef, num_shots)
-    i=1
-    while i<num_shots+1
+    for i in 1:num_shots
         circuit = copy(input_circuit)
-        result_i=run(circuit, input_state)
-        graphs[i]=get_graph(result_i, quantum_only)
-        i+=1
+        state_i=run(circuit, rt, input_state)
+        graphs[i]=get_graph(to_result(state_i), quantum_only)
     end
     n = nv(first(graphs))
     all_edges = Set{Tuple{Int,Int}}()

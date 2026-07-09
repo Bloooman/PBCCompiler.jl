@@ -97,7 +97,9 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
                 check_list=vcat(check_list,a_stabilizer)
                 @reset state.stabilizer_group = check_list
                 @reset state.runtime = rt
-                return (QuantumRes(op.pauli, result), state)
+                # Store the full-width Pauli so downstream absolute-index slicing
+                # (to_result) sees the correct qubit positions
+                return (QuantumRes(paulistring, result), state)
             end
         else
             result = Bool(projection[3]>>1)
@@ -134,7 +136,9 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
                 a_stabilizer= Stabilizer([paulistring])
                 check_list=vcat(check_list,a_stabilizer)
                 @reset state.stabilizer_group = check_list
-                return (QuantumRes(op.pauli, result), state)
+                # Store the full-width Pauli so downstream absolute-index slicing
+                # (to_result) sees the correct qubit positions
+                return (QuantumRes(paulistring, result), state)
             end
         else
             result = Bool(projection[3]>>1)
@@ -149,17 +153,19 @@ end
 Perform quantum measurement simulation on given state using QuantumClifford.jl backend
 """
 function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int)
-    magicqubits = collect(num_qubits-length(rt.quantum_memory.stab)+1:num_qubits)
     quantum_state = rt.quantum_memory
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
-    else
-        real_p=op.pauli[magicqubits]
-        bit_result = projectrand!(quantum_state, real_p)[2]
-        result=Bool(bit_result>>1)
-        rt = @reset rt.quantum_memory = quantum_state
-        return (rt, result)
     end
+    magicqubits = collect(num_qubits-length(quantum_state.stab)+1:num_qubits)
+    # op.pauli is indexed by position within op.qubits; embed it to the full
+    # register before slicing by absolute qubit indices (out-of-bounds
+    # PauliOperator indexing silently yields identity instead of throwing)
+    real_p=embed(num_qubits, op.qubits, op.pauli)[magicqubits]
+    bit_result = projectrand!(quantum_state, real_p)[2]
+    result=Bool(bit_result>>1)
+    rt = @reset rt.quantum_memory = quantum_state
+    return (rt, result)
 end
 
 """
@@ -176,27 +182,31 @@ end
 function resolve_conditionals(state::CompilerState)
     circuit=state.circuit
     creg=state.classical_register
-    index=find_variant_indices(circuit, BitConditional)
-    for i in index
-        @debug("Start resolving BitConditional at $i")
-        operation=circuit[i]
-        control_bit=creg[operation.bit]
-        if control_bit !== nothing
-            if control_bit
-                @debug("$i has a controlled bit")
-                splice!(circuit, i, [operation.op])
-                @debug("$i Resolved")
+    # Keep resolving until a full scan finds no determined BitConditional.
+    # Indices go stale after each splice!/deleteat! (and preprocess_circuit can
+    # reorder the circuit), so re-scan from scratch after every resolution.
+    resolved = true
+    while resolved
+        resolved = false
+        for i in find_variant_indices(circuit, BitConditional)
+            @debug("Start resolving BitConditional at $i")
+            operation=circuit[i]
+            control_bit=creg[operation.bit]
+            if control_bit !== nothing
+                if control_bit
+                    @debug("$i has a controlled bit")
+                    splice!(circuit, i, [operation.op])
+                    @debug("$i Resolved")
+                else
+                    deleteat!(circuit, i)
+                    @debug("No correction needed")
+                end
                 preprocess_circuit(circuit)
+                resolved = true
                 break
             else
-                deleteat!(circuit, i)
-                @debug("No correction needed")
-                preprocess_circuit(circuit)
-                break
+                @debug("Control Bit undetermined")
             end
-        else
-            @debug("Control Bit undetermined")
-            nothing
         end
     end
 end

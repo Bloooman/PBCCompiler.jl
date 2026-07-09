@@ -14,7 +14,7 @@ function validate_CircuitOp(op::CircuitOp.Type)
     @match op begin
         CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
             if cq == Int64[] || tq == Int64[]
-                throw(PauliQubitMismatchError("$name($p, $q): Pauli String can't be empty"))
+                throw(PauliQubitMismatchError("PauliConditional($cp, $cq, $tp, $tq): control and target qubit lists can't be empty"))
             else
                 validate_CircuitOp(ExpQuatPiPauli(cp, cq))
                 validate_CircuitOp(ExpQuatPiPauli(tp, tq))
@@ -69,8 +69,7 @@ Each BitConditional CircuitOp contains a gadget(a set of four consecutive Circui
     perform a joint measurement P ⊗ Z between data and ancilla,
     then apply a conditional Clifford correction
 """
-function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_magic_state::Int)
-    num_bit=num_input_qubit
+function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_bit::Int, num_magic_state::Int)
     if isa_variant(op,CircuitOp.ExpEighPiPauli)
         P=paulis(op)
         Q=affectedqubits(op)
@@ -187,11 +186,14 @@ function, mutates in place.
 function remove_nonclifford(circuit::Circuit)
     indices=find_variant_indices(circuit,ExpEighPiPauli)
     num_input_qubit=get_circuit_width(circuit)
+    # Allocate gadget bits above the highest bit already in use; using the qubit
+    # count alone would collide with user bits whenever bit indices exceed it
+    num_bit=max(get_bit_number(circuit), num_input_qubit)
     num_magic_state=0
     for i in reverse(indices)
         num_magic_state+=1
         op=circuit[i]
-        gadget = gadgetize(op, num_input_qubit, num_magic_state)
+        gadget = gadgetize(op, num_input_qubit, num_bit, num_magic_state)
         splice!(circuit, i, gadget)
     end
 end
@@ -204,6 +206,7 @@ operates directly on the underlying gate sequence.
 """
 function remove_post_measurement(circuit::Circuit)
     # remove all gates after the last measurement
-    index=maximum(find_variant_indices(circuit,Measurement))
-    resize!(circuit, index)
+    indices=find_variant_indices(circuit,Measurement)
+    isempty(indices) && return circuit
+    resize!(circuit, maximum(indices))
 end

@@ -72,8 +72,12 @@ function traversal(circuit::Circuit, pair_transformation, direction::Symbol=:rig
     if starting_index < 1 || starting_index > length(circuit) - 1
         return circuit
     end
-    if actual_end < 1 || actual_end > length(circuit) - 1
+    if actual_end > length(circuit) - 1
         actual_end = length(circuit) - 1
+    end
+    # An end index left of the start means there is no pair to visit
+    if actual_end < starting_index
+        return circuit
     end
 
     if direction === :right

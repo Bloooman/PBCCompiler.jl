@@ -86,7 +86,7 @@ function do_quantum_step(state::CompilerState)
     op=circuit[meas_list[i]]
     bit_index=op.bit
     (meas_result, state)=get_measurement_result(state, op)
-    @debug "Measurement result is $res" _group=:api
+    @debug "Measurement result is $(meas_result.result)" _group=:api
     state.measurement_results[i]=meas_result
     state.classical_register[bit_index]=meas_result.result
     @reset state.instruction_pointer = i+1
@@ -128,16 +128,19 @@ Run compute/compile with provided circuit and input state(described by stabilize
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
     state = build_compilerstate(input_circuit, rt, input_state)
-    len=length(state.classical_register)
     while !isempty(state.circuit)
         @debug "Working on $(state.instruction_pointer) th PPM" _group=:api
         resolve_conditionals(state)
+        # Stop once every measurement has been performed; bounding by both the
+        # measurement count and the result-vector length prevents out-of-bounds
+        # access when bit indices and measurement counts disagree
+        num_meas = length(find_variant_indices(state.circuit, Measurement))
+        if state.instruction_pointer > min(num_meas, length(state.measurement_results))
+            break
+        end
         state=do_quantum_step(state)
         @debug "Performed $(state.instruction_pointer) th PPM" _group=:api
         @debug "Current classical register: $(state.classical_register)" _group=:api
-        if state.instruction_pointer>len
-            break
-        end
     end
     @debug "Compute/Compile Complete" _group=:api
     return state

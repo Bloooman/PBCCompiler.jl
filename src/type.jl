@@ -218,6 +218,10 @@ function Base.show(io::IO, r::CompilationResult)
     n = length(r.measurement_results)
     println(io, "  Measurements ($n):")
     for i in 1:n
+        if !isassigned(r.measurement_results, i)
+            println(io, "    [$i] undefined")
+            continue
+        end
         m = r.measurement_results[i]
         println(io, "    [$i] ", m.pauli,
                     "  →  ", _bool_str(m.result),
