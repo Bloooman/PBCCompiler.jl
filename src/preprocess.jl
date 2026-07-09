@@ -9,21 +9,44 @@ struct PauliQubitMismatchError <: Exception
     msg::String
 end
 
-"""Function for checking if the pauli and qubits field denotes different number of qubits"""
+"""
+Validate a single circuit operation, throwing a descriptive error for inputs the
+compilation pipeline cannot process: Pauli/qubit length mismatches, imaginary
+(±i) Pauli phases, empty qubit lists, non-positive qubit or classical bit
+indices, overlapping PauliConditional registers, and PrepMagic (not yet
+supported by the pipeline).
+"""
 function validate_CircuitOp(op::CircuitOp.Type)
     @match op begin
         CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
             if cq == Int64[] || tq == Int64[]
                 throw(PauliQubitMismatchError("PauliConditional($cp, $cq, $tp, $tq): control and target qubit lists can't be empty"))
-            else
-                validate_CircuitOp(ExpQuatPiPauli(cp, cq))
-                validate_CircuitOp(ExpQuatPiPauli(tp, tq))
             end
+            if !isempty(intersect(cq, tq))
+                throw(ArgumentError("PauliConditional($cp, $cq, $tp, $tq): control and target qubit registers overlap; the decomposition into Pauli Product Rotations requires disjoint registers"))
+            end
+            validate_CircuitOp(ExpQuatPiPauli(cp, cq))
+            validate_CircuitOp(ExpQuatPiPauli(tp, tq))
+        end
+        CircuitOp.PrepMagic(qubit, qubits) => begin
+            throw(ArgumentError("PrepMagic($qubit, $qubits) is not supported by the compilation pipeline; non-Clifford rotations are gadgetized automatically instead"))
+        end
+        CircuitOp.BitConditional(inner_op, bit) => begin
+            if bit < 1
+                throw(ArgumentError("BitConditional(…, $bit): classical bit indices must be ≥ 1"))
+            end
+            validate_CircuitOp(inner_op)
         end
         _ => begin
             p=paulis(op)
             q=affectedqubits(op)
             name=variant_name(op)
+            if isempty(q)
+                throw(PauliQubitMismatchError("$name($p, $q): operation affects no qubits"))
+            end
+            if any(<(1), q)
+                throw(ArgumentError("$name($p, $q): qubit indices must be ≥ 1"))
+            end
             if length(p) != length(q)
                 throw(PauliQubitMismatchError("$name($p, $q): The length of the Pauli string is not the same as the number of affected qubits. Please check the input operation."))
             end
@@ -32,14 +55,34 @@ function validate_CircuitOp(op::CircuitOp.Type)
             if isodd(p.phase[])
                 throw(ArgumentError("$name($p, $q): Pauli strings with imaginary phase (±i) are not Hermitian and cannot define a rotation or measurement."))
             end
+            if isa_variant(op, CircuitOp.Measurement) && op.bit < 1
+                throw(ArgumentError("$name($p, $q): classical bit indices must be ≥ 1, got $(op.bit)"))
+            end
         end
     end
 end
 
-"""Check every CircuitOp in a circuit"""
+"""
+Validate every CircuitOp in a circuit (see `validate_CircuitOp`), plus the
+circuit-level invariants the runtime relies on: measurement bit indices must be
+distinct (a duplicate would silently drop a measurement), and every
+BitConditional must be controlled by a bit that some Measurement writes.
+"""
 function validate_circuit(circuit::Circuit)
     for op in circuit
         validate_CircuitOp(op)
+    end
+    meas_indices = find_variant_indices(circuit, Measurement)
+    bits = [circuit[i].bit for i in meas_indices]
+    if !allunique(bits)
+        throw(ArgumentError("Duplicate classical bit indices among measurements ($bits): each Measurement must write a distinct bit"))
+    end
+    bitset = Set(bits)
+    for i in find_variant_indices(circuit, BitConditional)
+        b = circuit[i].bit
+        if !(b in bitset)
+            throw(ArgumentError("BitConditional at position $i is controlled by bit $b, which no Measurement in the circuit writes"))
+        end
     end
 end
 

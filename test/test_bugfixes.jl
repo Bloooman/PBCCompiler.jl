@@ -196,4 +196,50 @@ end
     @test size(A, 1) == size(result.stabilizer_group, 2)
 end
 
+@testset "input validation rejects malformed operations" begin
+    validate_circuit = PBCCompiler.validate_circuit
+    # PrepMagic is not supported by the pipeline
+    @test_throws ArgumentError validate_CircuitOp(PBCCompiler.PrepMagic(2, [1]))
+    # Overlapping control/target registers in PauliConditional
+    @test_throws ArgumentError validate_CircuitOp(PauliConditional(P"Z", [1], P"X", [1]))
+    # Non-positive qubit indices
+    @test_throws ArgumentError validate_CircuitOp(Measurement(P"Z", 1, [0]))
+    @test_throws ArgumentError validate_CircuitOp(Measurement(P"Z", 1, [-2]))
+    # Non-positive classical bit indices
+    @test_throws ArgumentError validate_CircuitOp(Measurement(P"Z", 0, [1]))
+    @test_throws ArgumentError validate_CircuitOp(BitConditional(ExpHalfPiPauli(P"X", [1]), 0))
+    # Duplicate measurement bits would silently drop a measurement downstream
+    @test_throws ArgumentError validate_circuit(Circuit([
+        Measurement(P"Z", 1, [1]), Measurement(P"X", 1, [1])]))
+    # BitConditional controlled by a bit no measurement writes
+    @test_throws ArgumentError validate_circuit(Circuit([
+        BitConditional(ExpHalfPiPauli(P"X", [1]), 7), Measurement(P"Z", 1, [1])]))
+    # A well-formed circuit still validates
+    validate_circuit(Circuit([
+        BitConditional(ExpHalfPiPauli(P"X", [1]), 1),
+        PauliConditional(P"Z", [1], P"X", [2]),
+        Measurement(P"Z", 1, [1]), Measurement(P"Z", 2, [2])]))
+    @test true
+    # ... and run() surfaces the validation error
+    @test_throws ArgumentError PBCCompiler.run(
+        Circuit([Measurement(P"Z", 1, [1]), Measurement(P"X", 1, [1])]), DummyRuntime())
+end
+
+@testset "single-op circuits go through the full pipeline" begin
+    circuit = Circuit([ExpEighPiPauli(P"Z", [1])])
+    preprocess_circuit(circuit)
+    @test isempty(find_variant_indices(circuit, ExpEighPiPauli))
+    @test !isempty(find_variant_indices(circuit, Measurement))
+
+    circuit = Circuit([PauliConditional(P"Z", [1], P"X", [2])])
+    preprocess_circuit(circuit)
+    @test isempty(find_variant_indices(circuit, PauliConditional))
+end
+
+@testset "get_distribution on circuits with no classical bits" begin
+    (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
+    @test distribution == [3]
+    @test data == [0, 0, 0]
+end
+
 end

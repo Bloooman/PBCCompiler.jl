@@ -26,7 +26,8 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
         any(isnothing, final_measurement_results) &&
             error("Classical bits 1:$num_bits were not all measured; register: $register")
         bit_str = join(Int.(final_measurement_results))
-        index = parse(Int, bit_str; base=2) + 1
+        # A circuit without measurements has an empty bit string; count it as outcome 0
+        index = isempty(bit_str) ? 1 : parse(Int, bit_str; base=2) + 1
         distribution[index]+=1
         data[i]=index-1
     end
