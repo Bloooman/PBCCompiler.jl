@@ -282,27 +282,51 @@ end
     parse_QuantumClifford(filepath::String) -> Vector{AbstractOperation}
 
 Read an OpenQASM 2.0 file and return a circuit as a vector of QuantumClifford
-operations. Supports Clifford+T gates: `x`, `y`, `z`, `h`, `cx`, `s`, `sdg`,
-`t`, `tdg`. Qubit indices are 1-based. T† is decomposed as T followed by S†.
+operations.
+
+Primitive Clifford+T gates (`x`, `y`, `z`, `h`, `cx`/`cnot`, `s`, `sdg`, `t`,
+`tdg`) are mapped directly; T† is decomposed as T followed by S†. Composite
+gates (e.g. `ccx`) are expanded recursively via `gate` definitions loaded from
+`include`d `.inc` files and from inline `gate` blocks. Unknown gates and
+parameterized gate calls raise an error. Qubit indices are 1-based; multiple
+`qreg` declarations are laid out consecutively.
 """
 function parse_QuantumClifford(filepath::String)
+    content = read(filepath, String)
+    dir     = dirname(abspath(filepath))
+
+    # gate definitions: includes first, then inline definitions (later wins)
+    gate_defs = Dict{String,GateDef}()
+    for m in eachmatch(r"include\s+\"([^\"]+)\"\s*;", content)
+        inc_path = joinpath(dir, m[1])
+        isfile(inc_path) && _load_gate_defs!(gate_defs, read(inc_path, String))
+    end
+    _load_gate_defs!(gate_defs, content)
+
     circuit = QuantumClifford.AbstractOperation[]
     qubit_map = Dict{String,Int}()
     qubit_offset = 0
+    in_gate_def = false
 
-    for raw_line in eachline(filepath)
-        line = strip(raw_line)
-
-        # Strip inline comments
-        ci = findfirst("//", line)
-        !isnothing(ci) && (line = strip(line[1:ci.start-1]))
+    for raw_line in split(content, '\n')
+        line = strip(replace(raw_line, r"\s*//.*$" => ""))
         isempty(line) && continue
+
+        # Skip gate definition blocks; their bodies were consumed by _load_gate_defs!
+        if in_gate_def
+            contains(line, "}") && (in_gate_def = false)
+            continue
+        end
+        if startswith(line, "gate ")
+            in_gate_def = !contains(line, "}")
+            continue
+        end
 
         # Skip directives that carry no gate information
         (startswith(line, "OPENQASM") || startswith(line, "include") ||
          startswith(line, "creg")     || startswith(line, "measure") ||
          startswith(line, "reset")    || startswith(line, "barrier") ||
-         startswith(line, "gate")     || startswith(line, "opaque")) && continue
+         startswith(line, "opaque")) && continue
 
         # qreg declaration: build name[index] -> 1-based qubit number map
         m = match(r"^qreg\s+(\w+)\[(\d+)\]\s*;", line)
@@ -322,41 +346,73 @@ function parse_QuantumClifford(filepath::String)
 
         gate = lowercase(m.captures[1])
         args_str = strip(m.captures[2])
-
-        # Drop any parenthesised parameter list (e.g. U(theta,phi,lambda))
-        args_str = replace(args_str, r"\([^)]*\)" => "")
-        args_str = strip(args_str)
+        contains(args_str, "(") &&
+            error("Parameterized gate '$gate' is not supported — only Clifford+T gates are representable")
 
         qargs = [strip(q) for q in split(args_str, ",") if !isempty(strip(q))]
         isempty(qargs) && continue
 
-        qs = [get(qubit_map, q, nothing) for q in qargs]
-        any(isnothing, qs) && continue  # skip unresolvable qubit references
-
-        if gate == "x" && length(qs) == 1
-            push!(circuit, sX(qs[1]))
-        elseif gate == "y" && length(qs) == 1
-            push!(circuit, sY(qs[1]))
-        elseif gate == "z" && length(qs) == 1
-            push!(circuit, sZ(qs[1]))
-        elseif gate == "h" && length(qs) == 1
-            push!(circuit, sHadamard(qs[1]))
-        elseif (gate == "cx" || gate == "cnot") && length(qs) == 2
-            push!(circuit, sCNOT(qs[1], qs[2]))
-        elseif gate == "s" && length(qs) == 1
-            push!(circuit, sPhase(qs[1]))
-        elseif gate == "sdg" && length(qs) == 1
-            push!(circuit, sInvPhase(qs[1]))
-        elseif gate == "t" && length(qs) == 1
-            push!(circuit, sT(qs[1]))
-        elseif gate == "tdg" && length(qs) == 1
-            # T† = S†·T, so apply T first then S†
-            push!(circuit, sT(qs[1]))
-            push!(circuit, sInvPhase(qs[1]))
-        end
+        qs = [begin
+                  haskey(qubit_map, q) || error("Unknown qubit reference '$q' in line '$line'")
+                  qubit_map[q]
+              end for q in qargs]
+        _apply_gate_qc!(circuit, gate, qs, gate_defs)
     end
 
     return circuit
+end
+
+"""
+    _apply_gate_qc!(circuit, name, qs, gate_defs)
+
+Expand gate `name` onto 1-based qubit indices `qs` into a vector of
+QuantumClifford operations. Primitive Clifford+T gates are mapped directly;
+all other gates are looked up in `gate_defs` and expanded recursively.
+Errors on unknown gates and parameterized primitives.
+"""
+function _apply_gate_qc!(circuit::Vector{QuantumClifford.AbstractOperation}, name::AbstractString,
+                         qs::Vector{Int}, gate_defs::Dict{String,GateDef})
+    gate = lowercase(name)
+    single = Dict("x" => sX, "y" => sY, "z" => sZ, "h" => sHadamard,
+                  "s" => sPhase, "sdg" => sInvPhase, "t" => sT)
+    if gate == "id"
+        return
+    elseif haskey(single, gate)
+        length(qs) == 1 || error("Gate '$name' takes 1 qubit, got $(length(qs))")
+        push!(circuit, single[gate](qs[1]))
+        return
+    elseif gate == "tdg"
+        length(qs) == 1 || error("Gate 'tdg' takes 1 qubit, got $(length(qs))")
+        # T† = S†·T, so apply T first then S†
+        push!(circuit, sT(qs[1]))
+        push!(circuit, sInvPhase(qs[1]))
+        return
+    elseif gate == "cx" || gate == "cnot"
+        length(qs) == 2 || error("Gate '$name' takes 2 qubits, got $(length(qs))")
+        push!(circuit, sCNOT(qs[1], qs[2]))
+        return
+    end
+
+    haskey(gate_defs, gate) ||
+        error("Unknown gate '$name' — not a Clifford+T primitive and not defined in any loaded .inc file")
+
+    def = gate_defs[gate]
+    length(qs) == length(def.qubits) ||
+        error("Gate '$name' expects $(length(def.qubits)) qubits, got $(length(qs))")
+    qubit_map = Dict(zip(def.qubits, qs))
+
+    for stmt in def.body
+        stmt = strip(stmt)
+        isempty(stmt) && continue
+        if match(r"^\w+\s*\(", stmt) !== nothing
+            error("Gate '$(def.name)' expands to parameterized primitive '$(split(stmt,'(')[1])' — not representable in the Clifford+T gate set")
+        end
+        m = match(r"^(\w+)\s+(.+)$", stmt)
+        m !== nothing || error("Cannot parse body statement in gate '$(def.name)': '$stmt'")
+        _apply_gate_qc!(circuit, String(m[1]),
+                        [qubit_map[strip(String(s))] for s in split(m[2], ',')],
+                        gate_defs)
+    end
 end
 
 """

@@ -236,6 +236,22 @@ end
     @test isempty(find_variant_indices(circuit, PauliConditional))
 end
 
+@testset "parse_QuantumClifford expands .inc gate definitions" begin
+    using QuantumClifford: sT, sCNOT, sHadamard, sInvPhase
+    fixture = joinpath(@__DIR__, "fixtures", "toffoli3.qasm")
+    qc_circuit = PBCCompiler.parse_QuantumClifford(fixture)
+    # Standard qelib1 ccx: 2 h, 6 cx, 4 t, 3 tdg (each tdg -> sT + sInvPhase)
+    @test PBCCompiler.get_T_count(qc_circuit) == 7
+    @test count(op -> op isa sCNOT, qc_circuit) == 6
+    @test count(op -> op isa sHadamard, qc_circuit) == 2
+    @test count(op -> op isa sInvPhase, qc_circuit) == 3
+    # Unknown gates now error instead of being silently dropped
+    mktemp() do path, io
+        write(io, "OPENQASM 2.0;\nqreg q[2];\nmystery q[0],q[1];\n"); close(io)
+        @test_throws ErrorException PBCCompiler.parse_QuantumClifford(path)
+    end
+end
+
 @testset "get_distribution on circuits with no classical bits" begin
     (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
     @test distribution == [3]

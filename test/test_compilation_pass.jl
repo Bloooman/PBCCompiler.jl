@@ -61,9 +61,14 @@ end
     @test isa_variant(meas_list[2], ClassicalRandomRes)
     @test isa_variant(meas_list[3], ClassicalDetermRes)
     @test isa_variant(meas_list[4], ClassicalDetermRes)
-    @test stab == S"+Z__
-                    +_Z_
-                    +_ZZ"
+    # The appended row records the measured eigenvalue, so its sign follows
+    # the (random) outcome of the quantum measurement
+    @test stab == (meas_list[1].result ? S"+Z__
+                                           +_Z_
+                                           -_ZZ" :
+                                         S"+Z__
+                                           +_Z_
+                                           +_ZZ")
 end
 
 @testset "DummyRuntime Correctness" begin
@@ -83,9 +88,14 @@ end
     @test isa_variant(meas_list[2], ClassicalRandomRes)
     @test isa_variant(meas_list[3], ClassicalDetermRes)
     @test isa_variant(meas_list[4], ClassicalDetermRes)
-    @test stab == S"+Z__
-                    +_Z_
-                    +_ZZ"
+    # The appended row records the measured eigenvalue, so its sign follows
+    # the (random) outcome of the quantum measurement
+    @test stab == (meas_list[1].result ? S"+Z__
+                                           +_Z_
+                                           -_ZZ" :
+                                         S"+Z__
+                                           +_Z_
+                                           +_ZZ")
 end
 
 end

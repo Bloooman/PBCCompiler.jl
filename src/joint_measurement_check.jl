@@ -94,7 +94,10 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
             else
                 (rt, result) = quantum_measurement(rt, op, num_qubits)
                 paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
-                a_stabilizer= Stabilizer([paulistring])
+                # The post-measurement state is stabilized by the SIGNED observable:
+                # outcome -1 (result=true) stabilizes -P, not +P. Recording +P
+                # unconditionally flips later dependent outcomes on half the shots.
+                a_stabilizer= Stabilizer([(-1)^result * paulistring])
                 check_list=vcat(check_list,a_stabilizer)
                 @reset state.stabilizer_group = check_list
                 @reset state.runtime = rt
@@ -136,7 +139,9 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
                 return (ClassicalRandomRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
             else
                 paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
-                a_stabilizer= Stabilizer([paulistring])
+                # See the SimRuntime method: the recorded stabilizer row must carry
+                # the measured sign
+                a_stabilizer= Stabilizer([(-1)^result * paulistring])
                 check_list=vcat(check_list,a_stabilizer)
                 @reset state.stabilizer_group = check_list
                 # Store the full-width Pauli so downstream absolute-index slicing
