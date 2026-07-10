@@ -140,12 +140,9 @@ julia> PBCCompiler.conjugate_noncliff(op1, M_Z)
 """
 function conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type)
     conjugated_op = @match (op1, op2) begin
-        (CircuitOp.ExpHalfPiPauli(), CircuitOp.ExpEighPiPauli()) => begin
-            (new_p, new_q) = conjugated_by_ExpHalfPiPauli(op1,op2)
-            CircuitOp.ExpEighPiPauli(new_p, new_q)
-        end
+        (CircuitOp.ExpHalfPiPauli(), CircuitOp.ExpEighPiPauli()) ||
         (CircuitOp.ExpQuatPiPauli(), CircuitOp.ExpEighPiPauli()) => begin
-            (new_p, new_q) = conjugated_by_ExpQuatPiPauli(op1,op2)
+            (new_p, new_q) = conjugated_by_clifford(op1,op2)
             CircuitOp.ExpEighPiPauli(new_p, new_q)
         end
         _=> nothing
@@ -179,14 +176,10 @@ julia> PBCCompiler.conjugate_measurement(op1, op2)
 """
 function conjugate_measurement(op1::CircuitOp.Type, op2::CircuitOp.Type)
     conjugated_op = @match (op1, op2) begin
-        (CircuitOp.ExpHalfPiPauli(), CircuitOp.Measurement()) => begin
-            b=op2.bit
-            (new_p, new_q) = conjugated_by_ExpHalfPiPauli(op1,op2)
-            CircuitOp.Measurement(new_p, b, new_q)
-        end
+        (CircuitOp.ExpHalfPiPauli(), CircuitOp.Measurement()) ||
         (CircuitOp.ExpQuatPiPauli(), CircuitOp.Measurement()) => begin
             b=op2.bit
-            (new_p, new_q) = conjugated_by_ExpQuatPiPauli(op1,op2)
+            (new_p, new_q) = conjugated_by_clifford(op1,op2)
             CircuitOp.Measurement(new_p, b, new_q)
         end
         _=> nothing
@@ -194,32 +187,23 @@ function conjugate_measurement(op1::CircuitOp.Type, op2::CircuitOp.Type)
     return conjugated_op===nothing ? nothing : (conjugated_op,op1)
 end
 ##
-function conjugated_by_ExpHalfPiPauli(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    if check_commutation(op1,op2) == 0
-        new_p = complete_paulis(op1, op2)[2]
-        new_qm = maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
-        new_q = [x for x in 1:new_qm]
-    else
-        (pauli1, pauli2) = complete_paulis(op1, op2)
-        new_p = -pauli2
-        new_qm = maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
-        new_q = [x for x in 1:new_qm]
+"""
+Conjugate op2's Pauli by the Clifford rotation op1 (op1 must be an
+ExpHalfPiPauli or ExpQuatPiPauli). Returns the conjugated Pauli together with
+its qubit list, expanded to `1:width` over the union of both ops' supports.
+If the Paulis commute, op2's Pauli passes through unchanged; if they
+anticommute, conjugation by exp(-iπ/2·P₁) gives -P₂ and by exp(-iπ/4·P₁)
+gives i·P₁·P₂.
+"""
+function conjugated_by_clifford(op1::CircuitOp.Type, op2::CircuitOp.Type)
+    (pauli1, pauli2) = complete_paulis(op1, op2)
+    new_qm = maximum(union(affectedqubits(op1), affectedqubits(op2)))
+    new_q = [x for x in 1:new_qm]
+    if comm(pauli1, pauli2) == 0
+        return (pauli2, new_q)
     end
-    return (new_p,new_q)
-end
-
-function conjugated_by_ExpQuatPiPauli(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    if check_commutation(op1,op2) == 0
-        new_p = complete_paulis(op1, op2)[2]
-        new_qm = maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
-        new_q = [x for x in 1:new_qm]
-    else
-        (pauli1, pauli2) = complete_paulis(op1, op2)
-        new_p = 1im*pauli1*pauli2
-        new_qm = maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
-        new_q = [x for x in 1:new_qm]
-    end
-    return (new_p,new_q)
+    new_p = isa_variant(op1, CircuitOp.ExpHalfPiPauli) ? -pauli2 : 1im*pauli1*pauli2
+    return (new_p, new_q)
 end
 ##
 """
