@@ -90,13 +90,7 @@ function variant_graph(graphs::Vector{<:SimpleWeightedGraph})::SimpleWeightedGra
 
     n = nv(graphs[1])
 
-    edge_count = Dict{Tuple{Int,Int}, Int}()
-    for g in graphs
-        for e in edges(g)
-            key = minmax(Int(src(e)), Int(dst(e)))
-            edge_count[key] = get(edge_count, key, 0) + 1
-        end
-    end
+    edge_count = countmap([minmax(Int(src(e)), Int(dst(e))) for g in graphs for e in edges(g)])
 
     I_vals = Int[]
     J_vals = Int[]
@@ -212,15 +206,7 @@ function variant_hypergraph(hypergraphs::Vector{KaHyPar.HyperGraph})::KaHyPar.Hy
 
     n_vertices = Int(hypergraphs[1].n_vertices)
 
-    # Count occurrences of each unique hyperedge (normalized to sorted 0-based vertex vector)
-    edge_count = Dict{Vector{Int}, Int}()
-    for hg in hypergraphs
-        n_edges = length(hg.edge_indices) - 1
-        for j in 1:n_edges
-            verts = sort(Int.(hg.hyperedges[hg.edge_indices[j]+1 : hg.edge_indices[j+1]]))
-            edge_count[verts] = get(edge_count, verts, 0) + 1
-        end
-    end
+    edge_count = _hyperedge_counts(hypergraphs)
 
     # Build sparse incidence matrix (n_vertices × n_unique_edges)
     unique_edges = collect(keys(edge_count))
@@ -255,16 +241,7 @@ Count the number of cut hyperedges in a partitioned hypergraph.
 Number of hyperedges whose vertices span more than one partition block.
 """
 function HyperedgeCut(h::KaHyPar.HyperGraph, parts::Vector{Int64})::Int64
-    n_edges = length(h.edge_indices) - 1
-    count = 0
-    for e in 1:n_edges
-        start = Int(h.edge_indices[e]) + 1     # 0-based C offset → 1-based Julia index
-        stop  = Int(h.edge_indices[e + 1])     # 0-based exclusive end = 1-based inclusive end
-        first_part = parts[Int(h.hyperedges[start]) + 1]
-        is_cut = any(parts[Int(h.hyperedges[i]) + 1] != first_part for i in (start + 1):stop)
-        count += is_cut
-    end
-    return count
+    return count(verts -> !allequal(parts[v+1] for v in verts), _hyperedge_vertices(h))
 end
 
 """
@@ -297,15 +274,26 @@ A `Dict` mapping each unique hyperedge — represented as a sorted, 1-indexed ve
 vector — to its total occurrence count across all input hypergraphs.
 """
 function hyperedge_frequency(hypergraphs::Vector{KaHyPar.HyperGraph})::Dict{Vector{Int}, Int}
-    counts = Dict{Vector{Int}, Int}()
-    for hg in hypergraphs
-        n_edges = length(hg.edge_indices) - 1
-        for j in 1:n_edges
-            verts = sort!(Int.(hg.hyperedges[hg.edge_indices[j]+1 : hg.edge_indices[j+1]]) .+ 1)
-            counts[verts] = get(counts, verts, 0) + 1
-        end
-    end
-    return counts
+    return Dict(verts .+ 1 => c for (verts, c) in _hyperedge_counts(hypergraphs))
+end
+##
+"""
+    _hyperedge_vertices(hg::KaHyPar.HyperGraph) -> Vector{Vector{Int}}
+
+Decode the CSR edge structure of a KaHyPar hypergraph into one vector of
+0-based vertex indices per hyperedge.
+"""
+function _hyperedge_vertices(hg::KaHyPar.HyperGraph)
+    return [Int.(hg.hyperedges[hg.edge_indices[j]+1 : hg.edge_indices[j+1]])
+            for j in 1:length(hg.edge_indices)-1]
+end
+
+"""
+Count occurrences of each unique hyperedge across `hypergraphs`, keyed by the
+sorted 0-based vertex vector.
+"""
+function _hyperedge_counts(hypergraphs)
+    return countmap([sort!(verts) for hg in hypergraphs for verts in _hyperedge_vertices(hg)])
 end
 
 function num_nonclifford(circuit::Circuit)
@@ -325,12 +313,7 @@ Count the number of hyperedges at each size across the entire hypergraph.
 A `Dict` mapping each hyperedge size to its count.
 """
 function hyperedge_size_distribution(h::KaHyPar.HyperGraph)::Dict{Int,Int}
-    dist = Dict{Int,Int}()
-    for i in 1:(length(h.edge_indices) - 1)
-        s = Int(h.edge_indices[i + 1] - h.edge_indices[i])
-        dist[s] = get(dist, s, 0) + 1
-    end
-    return dist
+    return countmap(length.(_hyperedge_vertices(h)))
 end
 ##
 """
@@ -350,17 +333,6 @@ that hyperedge e touches. Equals `HyperedgeCut` only when every cut edge
 spans exactly 2 blocks.
 """
 function HyperedgeConnectivity(h::KaHyPar.HyperGraph, parts::Vector{Int64})::Int64
-    n_edges = length(h.edge_indices) - 1
-    seen = Set{Int64}()
-    total = 0
-    for e in 1:n_edges
-        start = Int(h.edge_indices[e]) + 1
-        stop  = Int(h.edge_indices[e + 1])
-        empty!(seen)
-        for i in start:stop
-            push!(seen, parts[Int(h.hyperedges[i]) + 1])
-        end
-        total += length(seen) - 1
-    end
-    return total
+    return sum((length(unique(parts[v+1] for v in verts)) - 1
+                for verts in _hyperedge_vertices(h)); init=0)
 end
