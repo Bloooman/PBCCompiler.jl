@@ -30,45 +30,54 @@ Build the initial `CompilerState` from an input circuit and input state.
 - `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
 function build_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
-    if !isempty(input_circuit)
-        validate_circuit(input_circuit)
-        if isnothing(input_state)
-            input_state=Stabilizer(one(Stabilizer, get_circuit_width(input_circuit); basis=:Z))
-        else
-            validate_input(input_circuit,input_state)
-            input_state=input_state
-        end
-        shared = build_shared(input_circuit, input_state)
-        rt_data = build_rt_data(input_circuit, input_state, rt)
-        CompilerState(; shared..., runtime=rt_data)
+    isempty(input_circuit) && return _empty_state(input_circuit, rt)
+    validate_circuit(input_circuit)
+    if isnothing(input_state)
+        input_state=Stabilizer(one(Stabilizer, get_circuit_width(input_circuit); basis=:Z))
     else
-        CompilerState(MeasurementResult.Type[], S"", Union{Nothing,Bool}[], input_circuit, 1, rt)
+        validate_input(input_circuit,input_state)
     end
+    num_input_qubits = get_circuit_width(input_circuit)
+    circuit = copy(input_circuit)
+    # The one and only preprocessing run: both the shared execution state and
+    # the runtime's magic-state memory are derived from this same circuit, so
+    # they cannot desync
+    preprocess_circuit(circuit)
+    # A circuit can cancel to nothing (e.g. a rotation followed by its inverse)
+    isempty(circuit) && return _empty_state(circuit, rt)
+    shared = build_shared(circuit, input_state)
+    rt_data = build_rt_data(circuit, num_input_qubits, rt)
+    CompilerState(; shared..., runtime=rt_data)
+end
+
+"""Compiler state for a circuit with nothing to execute."""
+function _empty_state(circuit::Circuit, rt::AbstractRuntime)
+    CompilerState(MeasurementResult.Type[], S"", Union{Nothing,Bool}[], circuit, 1, rt)
 end
 ##
-function build_shared(input_circuit::Circuit, input_state::Stabilizer)
-    circuit = copy(input_circuit)
-    preprocess_circuit(circuit)
-    num_bits=get_bit_number(circuit)
+"""Build the runtime-independent parts of the `CompilerState` from an already-preprocessed circuit."""
+function build_shared(preprocessed::Circuit, input_state::Stabilizer)
+    num_bits=get_bit_number(preprocessed)
     measres=Vector{MeasurementResult.Type}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    stabgroup=make_stabilizer_list(input_state, circuit)
-    return (measurement_results = measres, classical_register = creg, stabilizer_group = stabgroup, circuit = circuit, instruction_pointer = 1)
+    stabgroup=make_stabilizer_list(input_state, preprocessed)
+    return (measurement_results = measres, classical_register = creg, stabilizer_group = stabgroup, circuit = preprocessed, instruction_pointer = 1)
 end
 ##
-function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::SimRuntime)
-    num_pauli_qubits=get_circuit_width(input_circuit)
-    circuit = copy(input_circuit)
-    preprocess_circuit(circuit)
-    stabilizier_group=make_stabilizer_list(input_state, circuit)
-    num_gadgets=size(stabilizier_group)[2]-num_pauli_qubits
+"""
+Build the runtime data from an already-preprocessed circuit. For `SimRuntime`,
+allocate one magic-state qubit per gadget; gadgetization appends its magic
+qubits above the input width, so the gadget count is the width difference.
+"""
+function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::SimRuntime)
+    num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
     quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
     return rt
 end
 
-function build_rt_data(input_circuit::Circuit, input_state::Stabilizer, rt::R) where R<:AbstractRuntime
+function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::R) where R<:AbstractRuntime
     return rt
 end
 

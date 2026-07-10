@@ -252,6 +252,27 @@ end
     end
 end
 
+@testset "circuit that cancels to empty after preprocessing" begin
+    circuit = Circuit([ExpEighPiPauli(P"Z", [1]), ExpEighPiPauli(-P"Z", [1])])
+    state = run(circuit, SimRuntime())
+    @test isempty(state.classical_register)
+    @test isempty(state.measurement_results)
+end
+
+@testset "magic-state count matches gadgets in the executed circuit" begin
+    # Leading and trailing T gates: exactly two gadgets, two magic qubits
+    circuit = Circuit([
+        ExpEighPiPauli(P"Z", [2]),
+        ExpQuatPiPauli(P"X", [1]),
+        ExpEighPiPauli(P"Z", [1]),
+        Measurement(P"Z", 1, [1]),
+        Measurement(P"Z", 2, [2]),
+    ])
+    state = run(copy(circuit), SimRuntime())
+    input_width = 2
+    @test size(state.stabilizer_group, 2) - input_width == 2
+end
+
 @testset "get_distribution on circuits with no classical bits" begin
     (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
     @test distribution == [3]
