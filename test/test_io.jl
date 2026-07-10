@@ -137,6 +137,56 @@ end
     end
 end
 
+@testset "multiple quantum and classical registers" begin
+    path = tempname() * ".qasm"
+    write(path, """OPENQASM 2.0;
+    qreg a[2];
+    qreg b[1];
+    creg c[2];
+    creg d[1];
+    x a[1];
+    cx a[0],b[0];
+    measure a[0] -> c[0];
+    measure b[0] -> d[0];
+    """)
+    try
+        c = parse_input(path)
+        # a[0]→1, a[1]→2, b[0]→3; c[0]→1, c[1]→2, d[0]→3
+        @test length(c) == 4
+        @test isa_variant(c[1], CircuitOp.ExpHalfPiPauli) && c[1].qubits == [2]
+        @test isa_variant(c[2], CircuitOp.PauliConditional)
+        @test c[2].control_qubits == [1] && c[2].target_qubits == [3]
+        @test isa_variant(c[3], CircuitOp.Measurement) && c[3].qubits == [1] && c[3].bit == 1
+        @test isa_variant(c[4], CircuitOp.Measurement) && c[4].qubits == [3] && c[4].bit == 3
+    finally
+        rm(path; force=true)
+    end
+end
+
+@testset "OpenQASM 3.0 registers and measure" begin
+    path = tempname() * ".qasm"
+    write(path, """OPENQASM 3.0;
+    qubit[2] q;
+    bit[2] m;
+    x q[1];
+    m[0] = measure q[1];
+    """)
+    try
+        c = parse_input(path)
+        @test length(c) == 2
+        @test isa_variant(c[1], CircuitOp.ExpHalfPiPauli) && c[1].qubits == [2]
+        @test isa_variant(c[2], CircuitOp.Measurement) && c[2].qubits == [2] && c[2].bit == 1
+    finally
+        rm(path; force=true)
+    end
+end
+
+@testset "undeclared register reference errors" begin
+    with_qasm("x nosuch[0];") do path
+        @test_throws ErrorException parse_input(path)
+    end
+end
+
 @testset "ccx (Toffoli) gate" begin
     c = parse_input(joinpath(FIXTURES, "toffoli3.qasm"))
     # h×2 (3 ops each) + 4 cx + t×4 + tdg×3 = 19 gate ops + 3 measure-all = 22

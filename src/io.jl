@@ -45,8 +45,13 @@ from a loaded `.inc` file.
 Parameterized gate calls (`rx(θ)`, `u3(θ,φ,λ)`, etc.) raise an error — they are
 not representable in the Clifford+T gate set.
 
-QASM 2.0 measure: `measure q[i] -> c[j]` → `Measurement(P"Z", j+1, [i+1])`
-QASM 3.0 measure: `meas[j] = measure q[i]` → `Measurement(P"Z", j+1, [i+1])`
+Registers are laid out consecutively in declaration order: with `qreg a[2]; qreg b[1];`,
+`a[0]`→qubit 1, `a[1]`→qubit 2, `b[0]`→qubit 3, and likewise for classical registers.
+
+QASM 2.0 measure: `measure q[i] -> c[j]` → `Measurement(P"Z", bit(c[j]), [qubit(q[i])])`
+QASM 3.0 measure: `meas[j] = measure q[i]` → `Measurement(P"Z", bit(meas[j]), [qubit(q[i])])`
+
+References to undeclared registers raise an error.
 
 If no `measure` statement is present, all qubits are measured at the end: qubit `q`
 maps to classical bit `q`.
@@ -64,7 +69,13 @@ function parse_input(filepath::String)::Circuit
     _load_gate_defs!(gate_defs, content)
 
     circuit     = Circuit()
-    n_qubits    = 0
+    # Registers are laid out consecutively in declaration order, so files with
+    # several qreg/creg declarations map to distinct global indices instead of
+    # silently collapsing onto the same qubits/bits
+    qubit_map    = Dict{String,Int}()   # "q[0]" -> 1-based global qubit index
+    bit_map      = Dict{String,Int}()   # "c[0]" -> 1-based global bit index
+    qubit_offset = 0
+    bit_offset   = 0
     has_measure = false
     in_gate_def = false
 
@@ -81,22 +92,38 @@ function parse_input(filepath::String)::Circuit
             continue
         end
 
-        any(startswith(line, p) for p in ("OPENQASM", "barrier", "include", "creg", "bit[")) && continue
+        any(startswith(line, p) for p in ("OPENQASM", "barrier", "include")) && continue
 
-        # qubit count: v2 "qreg q[N];"  or  v3 "qubit[N] name;"
-        m = match(r"^(?:qreg\s+\w+|qubit)\[(\d+)\]", line)
-        m !== nothing && (n_qubits = parse(Int, m[1]); continue)
+        # quantum registers: v2 "qreg q[N];"  or  v3 "qubit[N] name;"
+        m = match(r"^qreg\s+(\w+)\[(\d+)\]", line)
+        m === nothing && (m = match(r"^qubit\[(\d+)\]\s+(\w+)", line);
+                          m === nothing || (m = (m[2], m[1])))
+        if m !== nothing
+            qubit_offset = _declare_register!(qubit_map, String(m[1]), parse(Int, m[2]), qubit_offset)
+            continue
+        end
+
+        # classical registers: v2 "creg c[N];"  or  v3 "bit[N] name;"
+        m = match(r"^creg\s+(\w+)\[(\d+)\]", line)
+        m === nothing && (m = match(r"^bit\[(\d+)\]\s+(\w+)", line);
+                          m === nothing || (m = (m[2], m[1])))
+        if m !== nothing
+            bit_offset = _declare_register!(bit_map, String(m[1]), parse(Int, m[2]), bit_offset)
+            continue
+        end
 
         # measure: v2 "measure q[i] -> c[j];"
-        m = match(r"^measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];$", line)
+        m = match(r"^measure\s+(\w+\[\d+\])\s*->\s*(\w+\[\d+\]);$", line)
         if m !== nothing
-            push!(circuit, CircuitOp.Measurement(P"Z", parse(Int,m[2])+1, [parse(Int,m[1])+1]))
+            push!(circuit, CircuitOp.Measurement(P"Z", _resolve(bit_map, m[2], "classical bit", line),
+                                                 [_resolve(qubit_map, m[1], "qubit", line)]))
             has_measure = true; continue
         end
         # measure: v3 "meas[j] = measure q[i];"
-        m = match(r"^\w+\[(\d+)\]\s*=\s*measure\s+\w+\[(\d+)\];$", line)
+        m = match(r"^(\w+\[\d+\])\s*=\s*measure\s+(\w+\[\d+\]);$", line)
         if m !== nothing
-            push!(circuit, CircuitOp.Measurement(P"Z", parse(Int,m[1])+1, [parse(Int,m[2])+1]))
+            push!(circuit, CircuitOp.Measurement(P"Z", _resolve(bit_map, m[1], "classical bit", line),
+                                                 [_resolve(qubit_map, m[2], "qubit", line)]))
             has_measure = true; continue
         end
 
@@ -107,17 +134,39 @@ function parse_input(filepath::String)::Circuit
         # gate application: name q[i] or name q[i],q[j] or name q[i],q[j],q[k]
         m = match(r"^(\w+)\s+(.+);$", line)
         if m !== nothing
-            qubits = [parse(Int, i[1])+1 for i in eachmatch(r"\[(\d+)\]", m[2])]
-            isempty(qubits) || (_apply_gate!(circuit, String(m[1]), qubits, gate_defs); continue)
+            refs = [String(r.match) for r in eachmatch(r"\w+\[\d+\]", m[2])]
+            if !isempty(refs)
+                qubits = [_resolve(qubit_map, ref, "qubit", line) for ref in refs]
+                _apply_gate!(circuit, String(m[1]), qubits, gate_defs)
+                continue
+            end
         end
     end
 
     if !has_measure
-        for q in 1:n_qubits
+        for q in 1:qubit_offset
             push!(circuit, CircuitOp.Measurement(P"Z", q, [q]))
         end
     end
     return circuit
+end
+
+"""
+Map every element `name[i]` of a newly declared register onto consecutive
+1-based global indices starting after `offset`; return the new offset.
+"""
+function _declare_register!(map::Dict{String,Int}, name::String, size::Int, offset::Int)
+    for i in 0:size-1
+        map["$name[$i]"] = offset + i + 1
+    end
+    return offset + size
+end
+
+"""Resolve a `name[i]` reference to its global index, erroring if the register was never declared."""
+function _resolve(map::Dict{String,Int}, ref::AbstractString, kind::String, line::AbstractString)
+    haskey(map, ref) ||
+        error("Unknown $kind reference '$ref' in line '$line' — register not declared")
+    return map[ref]
 end
 
 """
