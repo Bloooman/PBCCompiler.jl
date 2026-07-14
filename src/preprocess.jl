@@ -172,7 +172,12 @@ function remove_pauliconditional(circuit::Circuit)
             CircuitOp.PauliConditional(cp, cq, tp, tq) => begin
                 op_1=CircuitOp.ExpQuatPiPauli(-cp, cq)
                 op_2=CircuitOp.ExpQuatPiPauli(-tp, tq)
-                op_3=CircuitOp.ExpQuatPiPauli(cp⊗tp, sort(union(cq, tq)))
+                # cp⊗tp lists the control factors first, so the qubit list must
+                # keep [cq; tq] order; sorting it detaches the Pauli letters
+                # from their qubits whenever control indices exceed target ones
+                joint = [cq; tq]
+                perm = sortperm(joint)
+                op_3=CircuitOp.ExpQuatPiPauli((cp⊗tp)[perm], joint[perm])
                 splice!(circuit, i, (op_3, op_2, op_1))
             end
             _ => nothing

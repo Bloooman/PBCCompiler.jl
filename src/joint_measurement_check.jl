@@ -93,6 +93,11 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
                 return (ClassicalRandomRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
             else
                 (rt, result) = quantum_measurement(rt, op, num_qubits)
+                # The joint observable factors as (data part) ⊗ (magic part).
+                # quantum_measurement projects only the magic part, so the
+                # data part's eigenvalue under the current stabilizer group
+                # (-1 for e.g. a -Z input row) must multiply the outcome.
+                result ⊻= data_part_eigenvalue(state, op, num_qubits)
                 paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
                 # The post-measurement state is stabilized by the SIGNED observable:
                 # outcome -1 (result=true) stabilizes -P, not +P. Recording +P
@@ -176,6 +181,36 @@ function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int
     rt = @reset rt.quantum_memory = quantum_state
     return (rt, result)
 end
+
+"""
+    data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) -> Bool
+
+Return the eigenvalue bit (`true` denotes -1) of the data-register part of the
+joint gadget observable `op` under the current stabilizer group.
+
+A gadget measurement whose data part anticommutes with the group takes the
+random branch before reaching the quantum branch, and the group is full rank
+over the data register, so here the data part always has a definite sign —
+`-1` exactly when the input state carries it (e.g. a `-Z` input row). The
+observable's own phase is excluded: it is already carried by the magic-part
+slice inside `quantum_measurement`. Runtimes without a magic-state memory
+(e.g. `DummyRuntime`) return `false`.
+"""
+function data_part_eigenvalue(state::CompilerState{SimRuntime}, op::CircuitOp.Type, num_qubits::Int)
+    memory = state.runtime.quantum_memory
+    memory === nothing && return false
+    num_data = num_qubits - length(memory.stab)
+    data_p = embed(num_qubits, op.qubits, op.pauli)[1:num_data]
+    data_p.phase[] = 0x00
+    any(i -> let (x, z) = data_p[i]; x || z end, 1:num_data) || return false
+    data_full = embed(num_qubits, collect(1:num_data), data_p)
+    projection = project!(copy(state.stabilizer_group), data_full)
+    projection[3] === nothing &&
+        error("Data part $data_full of gadget measurement $op has no definite eigenvalue under the stabilizer group")
+    return Bool(projection[3] >> 1)
+end
+
+data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
     quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
