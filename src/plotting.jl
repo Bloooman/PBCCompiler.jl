@@ -45,13 +45,17 @@ function circuitplot_axis end
 
 ##
 """
-    plot_histogram(data)
+    plot_histogram(data; nbits=nothing)
 
 Plot a histogram of integer-valued `data` using CairoMakie.
 
 - Each bar is centered over its integer value, with the x-axis label appearing
   directly below the bar (not at bar edges).
-- X-axis tick labels are shown as bitstrings.
+- X-axis tick labels are shown as bitstrings, zero-padded to `nbits`. If `nbits`
+  is not given, it defaults to the number of bits needed to represent the
+  largest observed value — note this under-pads whenever the true bit width
+  isn't determinable from `data` alone (e.g. all outcomes happen to be 0),
+  so pass `nbits` explicitly whenever the true bit width is known.
 - The frequency count is labeled on top of each bar.
 """
 function plot_histogram end

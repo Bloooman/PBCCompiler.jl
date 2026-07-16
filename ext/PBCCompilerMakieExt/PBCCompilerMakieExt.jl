@@ -215,16 +215,19 @@ function circuitplot_axis(subfig, circuit::Circuit; kwargs...)
 end
 
 """
-    plot_histogram(data)
+    plot_histogram(data; nbits=nothing)
 
 Plot a histogram of integer-valued `data` using CairoMakie.
 
 - Each bar is centered over its integer value, with the x-axis label appearing
   directly below the bar (not at bar edges).
-- X-axis tick labels are shown as bitstrings.
+- X-axis tick labels are shown as bitstrings, zero-padded to `nbits`. If
+  `nbits` is omitted, it is inferred from the largest observed value, which
+  can under-pad (e.g. all outcomes are 0); pass `nbits` explicitly when the
+  true bit width is known.
 - The frequency count is labeled on top of each bar.
 """
-function plot_histogram(data)
+function plot_histogram(data; nbits::Union{Integer,Nothing}=nothing)
     freq_dict = Dict{Int,Int}()
     for v in data
         freq_dict[v] = get(freq_dict, v, 0) + 1
@@ -237,10 +240,12 @@ function plot_histogram(data)
 
     barplot!(ax, values, freqs; width = 1.0, gap = 0.0)
 
-    # X-axis: one tick per unique value, labeled as compact bitstring
-    # Use only as many bits as needed to represent the largest value
-    nbits = values[end] == 0 ? 1 : Int(ceil(log2(values[end] + 1)))
-    ax.xticks = (values, [string(v, base=2, pad=nbits) for v in values])
+    # X-axis: one tick per unique value, labeled as bitstring. Without an
+    # explicit nbits, fall back to the bits needed for the largest observed
+    # value — this can under-pad (e.g. all outcomes are 0) since the true
+    # bit width of the circuit isn't recoverable from `data` alone.
+    resolved_nbits = something(nbits, values[end] == 0 ? 1 : Int(ceil(log2(values[end] + 1))))
+    ax.xticks = (values, [string(v, base=2, pad=resolved_nbits) for v in values])
     ax.xticklabelrotation = π / 2
     ax.title = "Measurement Result Distribution"
     ax.ylabel = "Count"
