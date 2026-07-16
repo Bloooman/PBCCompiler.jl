@@ -200,37 +200,3 @@ W_ij = sum of `e_weights[e]` over all hyperedges `e` containing both node i and 
 """
 function plot_cooccurrence end
 
-##
-"""
-    plot_incidence(h::KaHyPar.HyperGraph, parts::Vector{Int}) -> Figure
-
-Incidence matrix heatmap with nodes and hyperedges reordered to expose partition structure.
-
-# Arguments
-- `h`: KaHyPar hypergraph
-- `parts`: partition assignment vector of length `h.n_vertices` (0-based block ids, as returned by KaHyPar)
-
-# Ordering
-- **Nodes (x-axis)**: sorted by `parts` block id — all nodes in block 0 first, then
-  block 1, etc. Red vertical lines mark the block boundaries.
-- **Hyperedges (y-axis)**: non-cut hyperedges first, grouped by their partition block
-  (well-defined since all their nodes are in the same block) and sorted by `e_weights`
-  descending within each block. Cut hyperedges are placed at the top, also sorted by
-  `e_weights` descending.
-
-# Returns
-CairoMakie Figure. Cell color encodes `e_weights[e]` for member nodes, white for
-non-members. Cut hyperedges (members spanning >1 partition block) are highlighted
-with a semi-transparent red overlay.
-
-# Reading the plot
-- **Colored cell at column i, row e**: node i is a member of hyperedge e; darkness
-  reflects the hyperedge weight `e_weights[e]`.
-- **White cell**: node i is not a member of hyperedge e.
-- **Colored band confined within one vertical block**: a non-cut hyperedge — all its
-  nodes are in the same partition.
-- **Red-tinted row**: a cut hyperedge whose members span more than one partition block.
-  Its colored cells will cross at least one red vertical line. These are the edges
-  penalized by the min-cut objective.
-"""
-function plot_incidence end
