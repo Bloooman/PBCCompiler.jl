@@ -1,4 +1,4 @@
-using QuantumClifford: PauliOperator, @P_str, Stabilizer, GeneralizedStabilizer
+using QuantumClifford: PauliOperator, @P_str, Stabilizer, GeneralizedStabilizer, MixedDestabilizer, stabilizerview
 using Moshi.Data: @data, variant_name
 using Moshi.Derive: @derive
 ##
@@ -127,11 +127,12 @@ Base.@kwdef struct CompilerState{R<:AbstractRuntime}
     """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
     measurement_results::Vector{MeasurementResult.Type}
     """
-    Stabilizer object that describes current quantum state
-    It has n columns where n is the number of total qubits (magic and stabilizer state qubits)
-    The tableau is not square (full-rank) before compilation is finished
+    MixedDestabilizer tableau that describes the current quantum state
+    It spans n qubits where n is the number of total qubits (magic and stabilizer state qubits)
+    Its rank is below n before compilation is finished; the destabilizer half
+    makes measurement projections cheap (no re-canonicalization per measurement)
     """
-    stabilizer_group::Stabilizer
+    stabilizer_group::MixedDestabilizer
     """Result of Measurement(..., bit, ...) is stored in classical_register[bit]"""
     classical_register::Vector{Union{Nothing,Bool}}
     """Contain current circuit object"""
@@ -210,7 +211,7 @@ function Base.show(io::IO, result::CompilerState)
     reg = join(map(_bool_str, result.classical_register), ", ")
     println(io, "  Classical Register: [", reg, "]")
     print(io, "  Stabilizer Group:\n")
-    show(io, result.stabilizer_group)
+    show(io, stabilizerview(result.stabilizer_group))
 end
 
 """

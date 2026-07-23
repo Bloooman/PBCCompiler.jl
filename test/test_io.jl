@@ -6,7 +6,7 @@ using PBCCompiler: Circuit, CircuitOp, Measurement, ExpHalfPiPauli, ExpQuatPiPau
 using PBCCompiler: MeasurementResult, CompilerState, SimRuntime, CompilationResult
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using Moshi.Data: isa_variant
-using QuantumClifford: @P_str, Stabilizer
+using QuantumClifford: @P_str, Stabilizer, MixedDestabilizer
 using PBCCompiler: parse_input, save_result, load_result
 """
     with_qasm(f, gates)
@@ -266,7 +266,7 @@ end
 function _make_compiler_state()
     return CompilerState(
         measurement_results = MeasurementResult.Type[ClassicalDetermRes(P"XZ", true)],
-        stabilizer_group    = Stabilizer([P"XX", P"ZZ"]),
+        stabilizer_group    = MixedDestabilizer(Stabilizer([P"XX", P"ZZ"])),
         classical_register  = Union{Nothing,Bool}[true, nothing],
         circuit             = Circuit(),
         instruction_pointer = 2,

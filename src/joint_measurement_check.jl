@@ -2,9 +2,8 @@
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
 ##
-using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, tensor_pow, apply!, pcT, projectrand!
+using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, tensor_pow, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases
 using Moshi.Data: variant_name, isa_variant
-using StatsBase: wsample
 using Accessors: @reset
 ##
 
@@ -60,105 +59,107 @@ function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
 end
 
 """
-    get_measurement_result(state::S, op::CircuitOp.Type) where S <: AbstractSimState -> Tuple{MeasurementResult, Int64, GeneralizedStabilizer}
+    get_measurement_result(state::CompilerState, op::CircuitOp.Type) -> Union{Tuple{MeasurementResult.Type, CompilerState}, Nothing}
 
 Perform Joint Measurement on a CircuitOp.Measurement
 
-It returns
+Returns `nothing` if `op` is not a `Measurement`; otherwise returns
 - a MeasurementResult with corresponding MeasurementResultType (true denotes 0, false denotes 1)
-- the index of the row where the non-commuting operator was (that row is now equal to pauli; its phase is not updated and for a faithful measurement simulation it needs to be randomized by the user)
-- a GeneralizedStabilizer represents the quantum state after measurement
+- the updated `CompilerState` (its tableau reflects the post-measurement state;
+  for a coin-flip outcome the update happens through compensating rotations
+  spliced into the circuit instead)
 """
 function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
     @debug "Measuring" op _group=:api
+    isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
-    check_list=state.stabilizer_group
-    num_qubits = get_circuit_width(state.circuit)
-    len=length(check_list)
-    projection = check_PPM(check_list, op, num_qubits)
-    if projection === nothing
-        return nothing
+    md = state.stabilizer_group
+    # The tableau spans the full register, so its width is the circuit width
+    # and is available in O(1)
+    num_qubits = nqubits(md)
+    sv = stabilizerview(md)
+    # Full-width Pauli: all result types share absolute qubit positions
+    pauli = embed(num_qubits, op.qubits, op.pauli)
+    # An anticommuting stabilizer row means a coin-flip outcome. Detect it by a
+    # row scan so the tableau stays untouched: this branch updates the state by
+    # splicing compensating rotations into the circuit, not by projecting.
+    anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
+    if anticom !== nothing
+        result = rand(Bool)
+        @debug "This measurement outputs Classical Random Result" _group=:api
+        q_1=[1:num_qubits;]
+        # copy: the row is a view into the tableau, which later projections
+        # mutate in place
+        Q_1=ExpQuatPiPauli(copy(sv[anticom]),q_1)
+        p_2=(-1)^result*op.pauli
+        Q_2=ExpQuatPiPauli(p_2,op.qubits)
+        pushfirst!(state.circuit,Q_1,Q_2,Q_1)
+        # The inserted rotations are Clifford, so commuting them out is all
+        # the preprocessing pipeline would do here
+        absorb_cliffords!(state.circuit)
+        return (ClassicalRandomRes(pauli, result), state)
+    end
+    projection = project!(md, pauli)
+    if projection[3] === nothing
+        # Commuting and independent of the group: project! grew the rank in
+        # place, adding `pauli` as the row at index projection[2]
+        (rt, result) = quantum_measurement(rt, op, num_qubits)
+        # The joint observable factors as (data part) ⊗ (magic part).
+        # quantum_measurement projects only the magic part, so the
+        # data part's eigenvalue under the current stabilizer group
+        # (-1 for e.g. a -Z input row) must multiply the outcome.
+        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        # The post-measurement state is stabilized by the SIGNED observable:
+        # outcome -1 (result=true) stabilizes -P, not +P. Recording +P
+        # unconditionally flips later dependent outcomes on half the shots.
+        phs = phases(stabilizerview(md))
+        phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+        @reset state.runtime = rt
+        return (QuantumRes(pauli, result), state)
     else
-        if projection[3] === nothing
-            if projection[2]<=len
-                result = rand(Bool[0,1])
-                @debug "This measurement outputs Classical Random Result" _group=:api
-                q_1=[1:get_circuit_width(state.circuit);]
-                Q_1=ExpQuatPiPauli(check_list[projection[2]],q_1)
-                p_2=(-1)^result*op.pauli
-                Q_2=ExpQuatPiPauli(p_2,op.qubits)
-                pushfirst!(state.circuit,Q_1,Q_2,Q_1)
-                preprocess_circuit(state.circuit)
-                # Store the full-width Pauli so all result types share absolute qubit positions
-                return (ClassicalRandomRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
-            else
-                (rt, result) = quantum_measurement(rt, op, num_qubits)
-                # The joint observable factors as (data part) ⊗ (magic part).
-                # quantum_measurement projects only the magic part, so the
-                # data part's eigenvalue under the current stabilizer group
-                # (-1 for e.g. a -Z input row) must multiply the outcome.
-                result ⊻= data_part_eigenvalue(state, op, num_qubits)
-                paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
-                # The post-measurement state is stabilized by the SIGNED observable:
-                # outcome -1 (result=true) stabilizes -P, not +P. Recording +P
-                # unconditionally flips later dependent outcomes on half the shots.
-                a_stabilizer= Stabilizer([(-1)^result * paulistring])
-                check_list=vcat(check_list,a_stabilizer)
-                @reset state.stabilizer_group = check_list
-                @reset state.runtime = rt
-                # Store the full-width Pauli so downstream absolute-index slicing
-                # (to_result) sees the correct qubit positions
-                return (QuantumRes(paulistring, result), state)
-            end
-        else
-            result = Bool(projection[3]>>1)
-            @debug "This measurement outputs Classical Deterministic Result" _group=:api
-            # Store the full-width Pauli so all result types share absolute qubit positions
-            return (ClassicalDetermRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
-        end
+        result = Bool(projection[3]>>1)
+        @debug "This measurement outputs Classical Deterministic Result" _group=:api
+        return (ClassicalDetermRes(pauli, result), state)
     end
 end
 
 function get_measurement_result(state::CompilerState{TraversalRuntime}, op::CircuitOp.Type)
     @debug "Measuring" op _group=:api
-    rt = state.runtime
-    outcome_probs = [1-rt.p1_outcome_probs, rt.p1_outcome_probs]
-    result = wsample([false,true],outcome_probs)
-    check_list=state.stabilizer_group
-    num_qubits = get_circuit_width(state.circuit)
-    len=length(check_list)
-    projection = check_PPM(check_list, op, num_qubits)
-    if projection === nothing
-        return nothing
+    isa_variant(op, CircuitOp.Measurement) || return nothing
+    result = rand() < state.runtime.p1_outcome_probs
+    md = state.stabilizer_group
+    # The tableau spans the full register, so its width is the circuit width
+    # and is available in O(1)
+    num_qubits = nqubits(md)
+    sv = stabilizerview(md)
+    # Full-width Pauli: all result types share absolute qubit positions
+    pauli = embed(num_qubits, op.qubits, op.pauli)
+    # See the SimRuntime method for the branch structure
+    anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
+    if anticom !== nothing
+        @debug "This measurement outputs Classical Random Result" _group=:api
+        q_1=[1:num_qubits;]
+        # copy: the row is a view into the tableau, which later projections
+        # mutate in place
+        Q_1=ExpQuatPiPauli(copy(sv[anticom]),q_1)
+        p_2=(-1)^result*op.pauli
+        Q_2=ExpQuatPiPauli(p_2,op.qubits)
+        pushfirst!(state.circuit,Q_1,Q_2,Q_1)
+        # The inserted rotations are Clifford, so commuting them out is all
+        # the preprocessing pipeline would do here
+        absorb_cliffords!(state.circuit)
+        return (ClassicalRandomRes(pauli, result), state)
+    end
+    projection = project!(md, pauli)
+    if projection[3] === nothing
+        # The recorded stabilizer row must carry the measured sign
+        phs = phases(stabilizerview(md))
+        phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+        return (QuantumRes(pauli, result), state)
     else
-        if projection[3] === nothing
-            if projection[2]<=len
-                @debug "This measurement outputs Classical Random Result" _group=:api
-                q_1=[1:get_circuit_width(state.circuit);]
-                Q_1=ExpQuatPiPauli(check_list[projection[2]],q_1)
-                p_2=(-1)^result*op.pauli
-                Q_2=ExpQuatPiPauli(p_2,op.qubits)
-                pushfirst!(state.circuit,Q_1,Q_2,Q_1)
-                preprocess_circuit(state.circuit)
-                # Store the full-width Pauli so all result types share absolute qubit positions
-                return (ClassicalRandomRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
-            else
-                paulistring=embed(size(state.stabilizer_group)[2], op.qubits, op.pauli)
-                # See the SimRuntime method: the recorded stabilizer row must carry
-                # the measured sign
-                a_stabilizer= Stabilizer([(-1)^result * paulistring])
-                check_list=vcat(check_list,a_stabilizer)
-                @reset state.stabilizer_group = check_list
-                # Store the full-width Pauli so downstream absolute-index slicing
-                # (to_result) sees the correct qubit positions
-                return (QuantumRes(paulistring, result), state)
-            end
-        else
-            result = Bool(projection[3]>>1)
-            @debug "This measurement outputs Classical Deterministic Result" _group=:api
-            # Store the full-width Pauli so all result types share absolute qubit positions
-            return (ClassicalDetermRes(embed(size(state.stabilizer_group)[2], op.qubits, op.pauli), result), state)
-        end
+        result = Bool(projection[3]>>1)
+        @debug "This measurement outputs Classical Deterministic Result" _group=:api
+        return (ClassicalDetermRes(pauli, result), state)
     end
 end
 ##
@@ -171,7 +172,7 @@ function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
     end
-    magicqubits = collect(num_qubits-length(quantum_state.stab)+1:num_qubits)
+    magicqubits = num_qubits-length(quantum_state.stab)+1:num_qubits
     # op.pauli is indexed by position within op.qubits; embed it to the full
     # register before slicing by absolute qubit indices (out-of-bounds
     # PauliOperator indexing silently yields identity instead of throwing)
@@ -217,8 +218,7 @@ data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) 
 Perform quantum measurement simulation on given state using classical sampling according to weight determined by user named outcome_probs
 """
 function quantum_measurement(rt::DummyRuntime, op::CircuitOp.Type, num_qubits::Int)
-    outcome_probs = [1-rt.p1_outcome_probs, rt.p1_outcome_probs]
-    result = wsample([false,true],outcome_probs)
+    result = rand() < rt.p1_outcome_probs
     return (rt,result)
 end
 
@@ -237,15 +237,23 @@ function resolve_conditionals(state::CompilerState)
             operation=circuit[i]
             control_bit=creg[operation.bit]
             if control_bit !== nothing
+                inner = operation.op
                 if control_bit
                     @debug("$i has a controlled bit")
-                    splice!(circuit, i, [operation.op])
+                    splice!(circuit, i, [inner])
                     @debug("$i Resolved")
                 else
                     deleteat!(circuit, i)
                     @debug("No correction needed")
                 end
-                preprocess_circuit(circuit)
+                # A resolved Clifford rotation (the only kind gadgetize emits)
+                # just needs commuting past the remaining measurements; other
+                # inner ops fall back to the full pipeline
+                if !control_bit || isa_variant(inner, ExpHalfPiPauli) || isa_variant(inner, ExpQuatPiPauli)
+                    absorb_cliffords!(circuit)
+                else
+                    preprocess_circuit(circuit)
+                end
                 resolved = true
                 break
             else

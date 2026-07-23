@@ -64,10 +64,7 @@ julia> PBCCompiler.complete_paulis(op1,op2)
 function complete_paulis(op1::CircuitOp.Type, op2::CircuitOp.Type)
     pu1 = paulis(op1)
     pu2 = paulis(op2)
-    qu1 = affectedqubits(op1)
-    qu2 = affectedqubits(op2)
-    affected_qubits = sort(union(qu1,qu2))
-    paulilen = maximum(affected_qubits)
+    paulilen = max(max_affected_qubit(op1), max_affected_qubit(op2))
     pauli1 = embed(paulilen, op1.qubits, pu1)
     pauli2 = embed(paulilen, op2.qubits, pu2)
     return (pauli1, pauli2)
@@ -197,7 +194,8 @@ gives i·P₁·P₂.
 """
 function conjugated_by_clifford(op1::CircuitOp.Type, op2::CircuitOp.Type)
     (pauli1, pauli2) = complete_paulis(op1, op2)
-    new_qm = maximum(union(affectedqubits(op1), affectedqubits(op2)))
+    # complete_paulis already embedded both Paulis to this width
+    new_qm = length(pauli1)
     new_q = [x for x in 1:new_qm]
     if comm(pauli1, pauli2) == 0
         return (pauli2, new_q)
@@ -221,7 +219,7 @@ function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1,op2) begin
         (ExpEighPiPauli(),ExpEighPiPauli()) => begin
             (p1,p2) = complete_paulis(op1,op2)
-            qm = maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            qm = length(p1)
             q = [x for x in 1:qm]
             if p1.xz == p2.xz
                 if xor(p1.phase[1], p2.phase[1]) == 0x02
@@ -237,7 +235,7 @@ function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
         end
         (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
             (p1,p2) = complete_paulis(op1,op2)
-            qm = maximum(sort(union(affectedqubits(op1), affectedqubits(op2))))
+            qm = length(p1)
             q = [x for x in 1:qm]
             if p1.xz == p2.xz
                 if xor(p1.phase[1], p2.phase[1]) == 0x02

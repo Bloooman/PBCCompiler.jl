@@ -1,5 +1,6 @@
 #This file contains the main logic for compute and compile input circuit into PBC Circuit
 using Accessors: @reset
+using QuantumClifford: MixedDestabilizer, Tableau, nqubits, stabilizerview
 """
     preprocess_circuit(circuit::Circuit) -> Circuit
 
@@ -52,7 +53,10 @@ end
 
 """Compiler state for a circuit with nothing to execute."""
 function _empty_state(circuit::Circuit, rt::AbstractRuntime)
-    CompilerState(MeasurementResult.Type[], S"", Union{Nothing,Bool}[], circuit, 1, rt)
+    # MixedDestabilizer(::Stabilizer) rejects zero-qubit input, so build the
+    # empty tableau explicitly
+    empty_group = MixedDestabilizer(Tableau(zeros(UInt8, 0), 0, zeros(UInt64, 0, 0)), 0)
+    CompilerState(MeasurementResult.Type[], empty_group, Union{Nothing,Bool}[], circuit, 1, rt)
 end
 ##
 """Build the runtime-independent parts of the `CompilerState` from an already-preprocessed circuit."""
@@ -60,7 +64,9 @@ function build_shared(preprocessed::Circuit, input_state::Stabilizer)
     num_bits=get_bit_number(preprocessed)
     measres=Vector{MeasurementResult.Type}(undef, num_bits)
     creg=Array{Union{Nothing, Bool}}(nothing, num_bits)
-    stabgroup=make_stabilizer_list(input_state, preprocessed)
+    # The destabilizer half lets each measurement project in O(n^2) instead of
+    # recanonicalizing the whole group
+    stabgroup=MixedDestabilizer(make_stabilizer_list(input_state, preprocessed))
     return (measurement_results = measres, classical_register = creg, stabilizer_group = stabgroup, circuit = preprocessed, instruction_pointer = 1)
 end
 ##
@@ -85,12 +91,15 @@ end
     do_quantum_step(state::CompilerState) -> CompilerState
 
 Perform the next joint measurement and update the `CompilerState` accordingly.
+
+`meas_list` are the positions of the `Measurement` ops in `state.circuit`;
+callers that already computed it (the `run` loop) pass it in to avoid a second
+scan of the circuit.
 """
-function do_quantum_step(state::CompilerState)
+function do_quantum_step(state::CompilerState, meas_list::Vector{Int}=find_variant_indices(state.circuit, Measurement))
     circuit = state.circuit
     i=state.instruction_pointer
     @debug "Now working with $i th measurement" _group=:api
-    meas_list = find_variant_indices(circuit, Measurement)
     op=circuit[meas_list[i]]
     bit_index=op.bit
     (meas_result, state)=get_measurement_result(state, op)
@@ -101,9 +110,11 @@ function do_quantum_step(state::CompilerState)
 end
 
 function to_result(state::CompilerState)
-    num_qubits = get_circuit_width(state.circuit)
+    # The tableau spans the full register, so its width is the circuit width
+    # and is available in O(1)
+    num_qubits = nqubits(state.stabilizer_group)
     quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
-    magicqubits = collect(num_qubits - length(quantum) + 1 : num_qubits)
+    magicqubits = num_qubits - length(quantum) + 1 : num_qubits
 
     excluded_local = Set{Int}()
     qpu_load = Vector{MeasurementResult.Type}()
@@ -121,7 +132,9 @@ function to_result(state::CompilerState)
         end
     end
 
-    CompilationResult(state.measurement_results, qpu_load, state.stabilizer_group, length(qpu_load))
+    # CompilationResult keeps the plain Stabilizer representation (stable
+    # serialization format); extract it from the working tableau
+    CompilationResult(state.measurement_results, qpu_load, copy(stabilizerview(state.stabilizer_group)), length(qpu_load))
 end
 
 """
@@ -146,11 +159,11 @@ function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothi
         # Stop once every measurement has been performed; bounding by both the
         # measurement count and the result-vector length prevents out-of-bounds
         # access when bit indices and measurement counts disagree
-        num_meas = length(find_variant_indices(state.circuit, Measurement))
-        if state.instruction_pointer > min(num_meas, length(state.measurement_results))
+        meas_list = find_variant_indices(state.circuit, Measurement)
+        if state.instruction_pointer > min(length(meas_list), length(state.measurement_results))
             break
         end
-        state=do_quantum_step(state)
+        state=do_quantum_step(state, meas_list)
         @debug "Performed $(state.instruction_pointer) th PPM" _group=:api
         @debug "Current classical register: $(state.classical_register)" _group=:api
     end

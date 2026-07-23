@@ -89,7 +89,7 @@ end
 function get_circuit_width(circuit::Circuit)
     width=0
     for i in circuit
-        width=max(width,maximum(affectedqubits(i)))
+        width=max(width,max_affected_qubit(i))
     end
     return width
 end
@@ -251,6 +251,40 @@ function remove_nonclifford(circuit::Circuit)
         gadget = gadgetize(op, num_input_qubit, num_bit, num_magic_state)
         splice!(circuit, i, gadget)
     end
+end
+
+"""
+    absorb_cliffords!(circuit::Circuit) -> Circuit
+
+Commute every bare Clifford rotation (`ExpHalfPiPauli`/`ExpQuatPiPauli`) in
+the circuit rightward past subsequent `Measurement`s, conjugating each
+measurement it crosses, then strip everything after the last measurement.
+
+This reproduces what `preprocess_circuit` does to bare Clifford rotations on
+an already-preprocessed circuit (Measurements and BitConditionals only) at
+O(rotations × measurements) cost instead of a full pipeline run: a rotation
+stalls at the first op that is not a Measurement (e.g. an unresolved
+BitConditional — jumping over it would be wrong when their Paulis
+anticommute) and is picked up again on a later call once the blocker is
+resolved; rotations that reach past the last measurement are dropped by the
+final truncation. Rotations are processed rightmost-first so measurements
+cross them in the same order as in the full pipeline.
+"""
+function absorb_cliffords!(circuit::Circuit)
+    for i in reverse(eachindex(circuit))
+        op = circuit[i]
+        (isa_variant(op, ExpHalfPiPauli) || isa_variant(op, ExpQuatPiPauli)) || continue
+        j = i
+        while j < length(circuit)
+            transformed = conjugate_measurement(op, circuit[j + 1])
+            transformed === nothing && break
+            circuit[j] = transformed[1]
+            circuit[j + 1] = op
+            j += 1
+        end
+    end
+    remove_post_measurement(circuit)
+    return circuit
 end
 
 """

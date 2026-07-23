@@ -33,6 +33,21 @@ function affectedqubits(op::CircuitOp.Type)
 end
 
 """
+    max_affected_qubit(op::CircuitOp.Type) -> Int
+
+Return the largest qubit index affected by a circuit operation, without
+allocating the sorted index list that [`affectedqubits`](@ref) builds.
+"""
+function max_affected_qubit(op::CircuitOp.Type)
+    @match op begin
+        CircuitOp.PrepMagic(qubit, qubits) => max(qubit, maximum(qubits))
+        CircuitOp.PauliConditional(cp, cq, tp, tq) => max(maximum(cq), maximum(tq))
+        CircuitOp.BitConditional(inner_op, bit) => max_affected_qubit(inner_op)
+        _ => maximum(op.qubits)
+    end
+end
+
+"""
     affectedqubits(circuit::Circuit) -> Vector{Int}
 
 Return the sorted list of all qubit indices affected by any operation in the circuit.

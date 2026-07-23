@@ -4,7 +4,7 @@ using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime, DummyRuntime
 using PBCCompiler.MeasurementResult
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
-using QuantumClifford: @P_str, @S_str
+using QuantumClifford: @P_str, @S_str, stabilizerview
 using Moshi.Derive: @derive
 using Moshi.Match: isa_variant
 
@@ -55,7 +55,7 @@ end
 
     real_result=run(circuit, SimRuntime())
     meas_list=real_result.measurement_results
-    stab=real_result.stabilizer_group
+    stab=copy(stabilizerview(real_result.stabilizer_group))
 
     @test isa_variant(meas_list[1], QuantumRes)
     @test isa_variant(meas_list[2], ClassicalRandomRes)
@@ -82,7 +82,7 @@ end
 
     real_result=run(circuit, DummyRuntime())
     meas_list=real_result.measurement_results
-    stab=real_result.stabilizer_group
+    stab=copy(stabilizerview(real_result.stabilizer_group))
 
     @test isa_variant(meas_list[1], QuantumRes)
     @test isa_variant(meas_list[2], ClassicalRandomRes)

@@ -278,7 +278,9 @@ function save_result(result::CompilerState, filepath::String)
     mkpath(dirname(filepath))
     JLD2.jldsave(filepath;
         measurement_results  = result.measurement_results,
-        stabilizer_group     = result.stabilizer_group,
+        # keep the on-disk representation a plain Stabilizer regardless of the
+        # in-memory tableau type
+        stabilizer_group     = copy(stabilizerview(result.stabilizer_group)),
         classical_register   = result.classical_register,
         instruction_pointer  = result.instruction_pointer,
     )

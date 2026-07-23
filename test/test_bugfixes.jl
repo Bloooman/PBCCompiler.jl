@@ -8,7 +8,7 @@ using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQu
     weight_std_graph, to_result, run, CompilerState, CompilationResult, MeasurementResult,
     SimRuntime, DummyRuntime
 using .MeasurementResult: ClassicalDetermRes
-using QuantumClifford: @P_str, @S_str
+using QuantumClifford: @P_str, @S_str, MixedDestabilizer, nqubits
 using Moshi.Derive: @derive
 using Moshi.Match: isa_variant
 using Graphs: nv
@@ -69,7 +69,7 @@ end
     ])
     state = CompilerState(
         measurement_results = MeasurementResult.Type[],
-        stabilizer_group = S"Z",
+        stabilizer_group = MixedDestabilizer(S"Z"),
         classical_register = Union{Nothing,Bool}[true, false, nothing],
         circuit = circuit,
         instruction_pointer = 1,
@@ -124,7 +124,7 @@ end
         Measurement(P"Z", 2, [2]),
     ])
     state = run(copy(circuit), SimRuntime())
-    width = size(state.stabilizer_group, 2)
+    width = nqubits(state.stabilizer_group)
     quantum = filter(mr -> isa_variant(mr, MeasurementResult.QuantumRes),
                      state.measurement_results)
     @test !isempty(quantum)
@@ -270,7 +270,7 @@ end
     ])
     state = run(copy(circuit), SimRuntime())
     input_width = 2
-    @test size(state.stabilizer_group, 2) - input_width == 2
+    @test nqubits(state.stabilizer_group) - input_width == 2
 end
 
 @testset "get_distribution on circuits with no classical bits" begin
