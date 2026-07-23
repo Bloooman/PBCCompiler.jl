@@ -102,9 +102,16 @@ abstract type AbstractRuntime end
 struct SimRuntime <: AbstractRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Union{GeneralizedStabilizer, Nothing}
+    """
+    Magic qubits whose deferred T gate has already been applied. The magic
+    register starts as the stabilizer state |+>^n and each T gate is applied
+    lazily, right before the first measurement touching its qubit, keeping the
+    chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
+    """
+    activated::Union{BitVector, Nothing}
 end
 
-SimRuntime() = SimRuntime(nothing)
+SimRuntime() = SimRuntime(nothing, nothing)
 
 """Runtime that replaces quantum measurements with classical coin flips of a fixed bias."""
 struct DummyRuntime <: AbstractRuntime

@@ -2,7 +2,7 @@
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
 ##
-using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, tensor_pow, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases
+using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases, UnitaryPauliChannel
 using Moshi.Data: variant_name, isa_variant
 using Accessors: @reset
 ##
@@ -24,16 +24,17 @@ function create_hadamard_basis_state(num_qubit::Int)
 end
 
 function create_magic_state(num_magic::Int)
-    n=num_magic
+    # The T gates are NOT applied here: they are deferred to
+    # `quantum_measurement`, which activates each magic qubit right before the
+    # first measurement touching it. This keeps the chi-expansion of the
+    # GeneralizedStabilizer at 4^(live qubits) instead of 4^(total), which is
+    # exact because T_i commutes with every op not touching qubit i.
+    return GeneralizedStabilizer(create_hadamard_basis_state(num_magic))
+end
 
-    generators = GeneralizedStabilizer(create_hadamard_basis_state(n))
-
-    T = tensor_pow(pcT,n)
-
-    apply!(generators,T)
-
-    return generators
-
+"""Embed the single-qubit `pcT` channel on qubit `i` of an `n`-qubit register."""
+function embedded_pcT(n::Int, i::Int)
+    UnitaryPauliChannel(map(p -> embed(n, i, p), pcT.paulis), pcT.weights)
 end
 
 """
@@ -177,6 +178,18 @@ function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int
     # register before slicing by absolute qubit indices (out-of-bounds
     # PauliOperator indexing silently yields identity instead of throwing)
     real_p=embed(num_qubits, op.qubits, op.pauli)[magicqubits]
+    # Deferred T gates: activate every magic qubit this measurement touches
+    # whose T has not been applied yet (see `create_magic_state`). The
+    # activation bit stays set after the qubit collapses back to a stabilizer
+    # state — reapplying T there would be wrong
+    num_magic = length(real_p)
+    for k in 1:num_magic
+        (x, z) = real_p[k]
+        if (x || z) && !rt.activated[k]
+            apply!(quantum_state, embedded_pcT(num_magic, k))
+            rt.activated[k] = true
+        end
+    end
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
     rt = @reset rt.quantum_memory = quantum_state
