@@ -1,4 +1,3 @@
-#This file contains functions for analyzing computed&compiled circuits
 ##
 using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
 using QuantumClifford: xbit, zbit

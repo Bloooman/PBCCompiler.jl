@@ -71,12 +71,9 @@ Returns `nothing` if `op` is not a `Measurement`; otherwise returns
   spliced into the circuit instead)
 """
 function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
-    @debug "Measuring" op _group=:api
     isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
     md = state.stabilizer_group
-    # The tableau spans the full register, so its width is the circuit width
-    # and is available in O(1)
     num_qubits = nqubits(md)
     sv = stabilizerview(md)
     # Full-width Pauli: all result types share absolute qubit positions
@@ -87,7 +84,6 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
     anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
     if anticom !== nothing
         result = rand(Bool)
-        @debug "This measurement outputs Classical Random Result" _group=:api
         q_1=[1:num_qubits;]
         # copy: the row is a view into the tableau, which later projections
         # mutate in place
@@ -119,26 +115,20 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
         return (QuantumRes(pauli, result), state)
     else
         result = Bool(projection[3]>>1)
-        @debug "This measurement outputs Classical Deterministic Result" _group=:api
         return (ClassicalDetermRes(pauli, result), state)
     end
 end
 
 function get_measurement_result(state::CompilerState{TraversalRuntime}, op::CircuitOp.Type)
-    @debug "Measuring" op _group=:api
     isa_variant(op, CircuitOp.Measurement) || return nothing
     result = rand() < state.runtime.p1_outcome_probs
     md = state.stabilizer_group
-    # The tableau spans the full register, so its width is the circuit width
-    # and is available in O(1)
     num_qubits = nqubits(md)
     sv = stabilizerview(md)
-    # Full-width Pauli: all result types share absolute qubit positions
     pauli = embed(num_qubits, op.qubits, op.pauli)
     # See the SimRuntime method for the branch structure
     anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
     if anticom !== nothing
-        @debug "This measurement outputs Classical Random Result" _group=:api
         q_1=[1:num_qubits;]
         # copy: the row is a view into the tableau, which later projections
         # mutate in place
@@ -146,8 +136,6 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
         p_2=(-1)^result*op.pauli
         Q_2=ExpQuatPiPauli(p_2,op.qubits)
         pushfirst!(state.circuit,Q_1,Q_2,Q_1)
-        # The inserted rotations are Clifford, so commuting them out is all
-        # the preprocessing pipeline would do here
         absorb_cliffords!(state.circuit)
         return (ClassicalRandomRes(pauli, result), state)
     end
@@ -159,7 +147,6 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
         return (QuantumRes(pauli, result), state)
     else
         result = Bool(projection[3]>>1)
-        @debug "This measurement outputs Classical Deterministic Result" _group=:api
         return (ClassicalDetermRes(pauli, result), state)
     end
 end
@@ -246,18 +233,15 @@ function resolve_conditionals(state::CompilerState)
     while resolved
         resolved = false
         for i in find_variant_indices(circuit, BitConditional)
-            @debug("Start resolving BitConditional at $i")
             operation=circuit[i]
             control_bit=creg[operation.bit]
             if control_bit !== nothing
                 inner = operation.op
+                @debug "Resolving BitConditional at $i" control_bit _group=:api
                 if control_bit
-                    @debug("$i has a controlled bit")
                     splice!(circuit, i, [inner])
-                    @debug("$i Resolved")
                 else
                     deleteat!(circuit, i)
-                    @debug("No correction needed")
                 end
                 # A resolved Clifford rotation (the only kind gadgetize emits)
                 # just needs commuting past the remaining measurements; other
@@ -269,8 +253,6 @@ function resolve_conditionals(state::CompilerState)
                 end
                 resolved = true
                 break
-            else
-                @debug("Control Bit undetermined")
             end
         end
     end

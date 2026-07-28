@@ -1,7 +1,3 @@
-# ============================================================
-# Kernel and Traversal Architecture
-# See docstring below for classification taxonomy.
-# ============================================================
 """
     Kernel and Traversal Architecture
 
@@ -66,10 +62,8 @@ function traversal(circuit::Circuit, pair_transformation, direction::Symbol=:rig
         return circuit
     end
 
-    # Resolve end_index
     actual_end = end_index === :end ? length(circuit) - 1 : end_index
 
-    # Validate indices
     if starting_index < 1 || starting_index > length(circuit) - 1
         return circuit
     end
@@ -92,9 +86,6 @@ function traversal(circuit::Circuit, pair_transformation, direction::Symbol=:rig
     return circuit
 end
 
-"""
-Internal: Traverse left-to-right, applying pair_transformation to adjacent pairs.
-"""
 function _traversal_right!(circuit::Circuit, pair_transformation, start_idx::Int, end_idx::Int)
     i = start_idx
     while i <= end_idx && i <= length(circuit) - 1
@@ -104,60 +95,48 @@ function _traversal_right!(circuit::Circuit, pair_transformation, start_idx::Int
         result = pair_transformation(op1, op2)
 
         if result === nothing
-            # No change, move to next pair
             i += 1
         elseif result isa Tuple && length(result) == 0
-            # Empty tuple: the pair cancels out - remove both operations
             deleteat!(circuit, i:i+1)
             end_idx = min(end_idx, length(circuit) - 1)
             # Step back so the newly adjacent pair around the gap is revisited
             i = max(start_idx, i - 1)
         elseif result isa Tuple && !(result isa CircuitOp.Type) && length(result) == 2
-            # Replace with tuple elements (explicitly check it's a 2-tuple and not a CircuitOp)
+            # CircuitOp variants are themselves Tuples, hence the explicit exclusion
             circuit[i] = result[1]
             circuit[i + 1] = result[2]
             i += 1
         else
-            # Single operation replaces both - splice to remove one element
             circuit[i] = result
             deleteat!(circuit, i + 1)
-            # Adjust end_idx since we removed an element
             end_idx = min(end_idx, length(circuit) - 1)
-            # Don't increment i, check the new pair at this position
+            # Don't increment i: the merged op forms a new pair at this position
         end
     end
 end
 
-"""
-Internal: Traverse right-to-left, applying pair_transformation to adjacent pairs.
-"""
 function _traversal_left!(circuit::Circuit, pair_transformation, start_idx::Int, end_idx::Int)
     i = end_idx
     while i >= start_idx && i >= 1
         op1 = circuit[i]
         op2 = circuit[i + 1]
-        @debug("pair transformation between $i and $i + 1")
 
         result = pair_transformation(op1, op2)
 
         if result === nothing
-            # No change, move to previous pair
             i -= 1
         elseif result isa Tuple && length(result) == 0
-            # Empty tuple: the pair cancels out - remove both operations
             deleteat!(circuit, i:i+1)
             # Step back, clamping so circuit[i + 1] stays in bounds
             i = min(i - 1, length(circuit) - 1)
         elseif result isa Tuple && !(result isa CircuitOp.Type) && length(result) == 2
-            # Replace with tuple elements (explicitly check it's a 2-tuple and not a CircuitOp)
+            # CircuitOp variants are themselves Tuples, hence the explicit exclusion
             circuit[i] = result[1]
             circuit[i + 1] = result[2]
             i -= 1
         else
-            # Single operation replaces both - splice to remove one element
             circuit[i] = result
             deleteat!(circuit, i + 1)
-            # Move to previous pair
             i -= 1
         end
     end

@@ -1,4 +1,3 @@
-#Functions for compiling quantum circuits by moving measurement operations to the beginning of the circuit.
 ##
 using Moshi.Data: variant_name, isa_variant
 using Moshi.Match: @match
@@ -159,10 +158,6 @@ end
     remove_pauliconditional(circuit::Circuit)->Nothing
 
 Reweite P1-controlled-P2 gates as C(P1, P2) = (P1 ⊗ P2)π/4 · (1 ⊗ P2)−π/4 · (P1 ⊗ 1)−π/4.
-
-**Kernel class:** expanding transformation (1→3)
-**Traversal:** inline — traversal and kernel logic are co-located in this
-function, mutates in place.
 """
 function remove_pauliconditional(circuit::Circuit)
     indices=find_variant_indices(circuit,PauliConditional)
@@ -188,9 +183,8 @@ end
 """
     group_nonclifford(circuit::Circuit)->nothing
 
-**Kernel class:** pair transformation (2→2)
-**Traversal:** `traversal` — iterates over consecutive gate pairs,
-mutates in place.
+Commute every Clifford rotation left of a non-Clifford rotation past it, so the
+non-Clifford rotations end up grouped at the front of the circuit.
 """
 function group_nonclifford(circuit::Circuit)
     if find_variant_indices(circuit,ExpEighPiPauli) != []
@@ -206,11 +200,7 @@ end
 Identifies and combines identical Pauli rotations:
 For example, two PPR (π/8) on the same Pauli operator P are merged into a single Clifford-level PPR (π/4).
 A rotation and its inverse, PPR (π/8) and PPR (−π/8), cancel each other out completely and are removed.
-
-**Kernel class:** pair transformation (2→2)
-**Traversal:** `traversal` — iterates over consecutive gate pairs,
-mutates in place.
-    """
+"""
 function merge_ops(circuit::Circuit)
     traversal(circuit,merge_rotations, :left, 1, :end)
 end
@@ -218,9 +208,8 @@ end
 """
     remove_clifford(circuit::Circuit)->Nothing
 
-**Kernel class:** pair transformation (2→2)
-**Traversal:** `traversal` — iterates over consecutive gate pairs,
-mutates in place.
+Commute every Clifford rotation rightward past the measurements that follow it,
+conjugating each measurement it crosses.
 """
 function remove_clifford(circuit::Circuit)
     for index in find_variant_indices(circuit, Measurement)
@@ -233,10 +222,6 @@ end
     remove_nonclifford(circuit::Circuit)->Nothing
 
 Replace every non-Clifford rotation with its magic-state gadget (see `gadgetize`).
-
-**Kernel class:** expanding transformation (1→4)
-**Traversal:** inline — traversal and kernel logic are co-located in this
-function, mutates in place.
 """
 function remove_nonclifford(circuit::Circuit)
     indices=find_variant_indices(circuit,ExpEighPiPauli)
@@ -259,18 +244,16 @@ end
 Commute every bare Clifford rotation (`ExpHalfPiPauli`/`ExpQuatPiPauli`) in
 the circuit rightward past subsequent `Measurement`s, conjugating each
 measurement it crosses, then strip everything after the last measurement.
-
-This reproduces what `preprocess_circuit` does to bare Clifford rotations on
-an already-preprocessed circuit (Measurements and BitConditionals only) at
-O(rotations × measurements) cost instead of a full pipeline run: a rotation
-stalls at the first op that is not a Measurement (e.g. an unresolved
-BitConditional — jumping over it would be wrong when their Paulis
-anticommute) and is picked up again on a later call once the blocker is
-resolved; rotations that reach past the last measurement are dropped by the
-final truncation. Rotations are processed rightmost-first so measurements
-cross them in the same order as in the full pipeline.
 """
 function absorb_cliffords!(circuit::Circuit)
+    # Equivalent to what `preprocess_circuit` does to bare Clifford rotations on
+    # an already-preprocessed circuit (Measurements and BitConditionals only),
+    # at O(rotations × measurements) instead of a full pipeline run. A rotation
+    # stalls at the first op that is not a Measurement (e.g. an unresolved
+    # BitConditional — jumping over it would be wrong when their Paulis
+    # anticommute) and is picked up again on a later call once the blocker is
+    # resolved. Rightmost-first so measurements cross rotations in the same
+    # order as in the full pipeline.
     for i in reverse(eachindex(circuit))
         op = circuit[i]
         (isa_variant(op, ExpHalfPiPauli) || isa_variant(op, ExpQuatPiPauli)) || continue
@@ -294,7 +277,6 @@ Removes all gates after last CircuitOp.Measurement. No traversal+kernel structur
 operates directly on the underlying gate sequence.
 """
 function remove_post_measurement(circuit::Circuit)
-    # remove all gates after the last measurement
     indices=find_variant_indices(circuit,Measurement)
     isempty(indices) && return circuit
     resize!(circuit, maximum(indices))

@@ -1,7 +1,3 @@
-
-#This file contains pair transformation functions that operate on adjacent pair of CircuitOps
-
-
 """
     paulis(op::CircuitOp.Type) -> PauliOperator
 
@@ -95,15 +91,12 @@ julia> PBCCompiler.check_commutation(op1, CNOT)
 """
 function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1, op2) begin
-        #scenario 1: One of them is Bit Conditional gate
         (op,CircuitOp.BitConditional(inner_op, bit)) || (CircuitOp.BitConditional(inner_op, bit), op) => begin
             return nothing
         end
-        #scenario 2: One of them is Pauli Conditional gate
         (op,CircuitOp.PauliConditional()) || (CircuitOp.PauliConditional(), op) => begin
             return nothing
         end
-        #scenario 3: Inputs are Pauli Product Rotations or Pauli Product Measurements
         _ => begin
             (pauli1,pauli2) = complete_paulis(op1, op2)
             commutativity = comm(pauli1,pauli2)

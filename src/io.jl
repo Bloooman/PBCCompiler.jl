@@ -127,7 +127,6 @@ function parse_input(filepath::String)::Circuit
             has_measure = true; continue
         end
 
-        # reject parameterized gate calls
         m = match(r"^(\w+)\s*\([^)]*\)\s+\w+\[", line)
         m !== nothing && error("Parameterized gate '$(m[1])' is not supported — only Clifford+T gates are representable")
 

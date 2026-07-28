@@ -56,7 +56,6 @@ function random_test_circuit(num_ops::Int, num_qubits::Int)::Circuit
     end
 
     for i in 1:num_qubits
-        #p = nonid_pauli(1; nophase=true)
         push!(ops, CircuitOp.Measurement(P"Z", i, [i]))
     end
 
