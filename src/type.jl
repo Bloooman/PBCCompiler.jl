@@ -109,9 +109,11 @@ struct SimRuntime <: AbstractRuntime
     chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
     """
     activated::Union{BitVector, Nothing}
+    """Number of non-zero elements in the density matrix at each simulation"""
+    invsparsity_history::Vector{Int}
 end
 
-SimRuntime() = SimRuntime(nothing, nothing)
+SimRuntime() = SimRuntime(nothing, nothing,[])
 
 """Runtime that replaces quantum measurements with classical coin flips of a fixed bias."""
 struct DummyRuntime <: AbstractRuntime

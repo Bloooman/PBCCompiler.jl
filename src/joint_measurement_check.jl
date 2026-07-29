@@ -2,7 +2,7 @@
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
 ##
-using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases, UnitaryPauliChannel
+using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases, UnitaryPauliChannel, invsparsity
 using Moshi.Data: variant_name, isa_variant
 using Accessors: @reset
 ##
@@ -179,6 +179,7 @@ function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int
     end
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
+    append!(rt.invsparsity_history,invsparsity(quantum_state))
     rt = @reset rt.quantum_memory = quantum_state
     return (rt, result)
 end
