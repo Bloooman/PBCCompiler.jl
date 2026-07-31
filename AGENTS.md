@@ -87,6 +87,39 @@ circuitplot_axis(fig[1,1], circuit)  # Create complete figure panel
 - `wirecolor`, `wirelinewidth` - Wire appearance
 - `paulicolor`, `measurementcolor`, etc. - Gate colors by variant
 
+### Circuit Visualization (Quantikz Extension)
+When Quantikz is loaded, the `PBCCompilerQuantikzExt` extension provides
+publication-quality LaTeX diagrams:
+```julia
+using Quantikz
+using PBCCompiler
+
+circuitplot_quantikz(circuit)                      # rendered image
+circuitplot_quantikz(circuit, "circuit.pdf")       # or .png / .tex
+circuitstring_quantikz(circuit)                    # raw LaTeX, no toolchain needed
+```
+
+**Why this and not the Makie/Qiskit renderers:** both of those draw a multi-qubit
+operation as *one rectangle spanning min→max qubit*, which covers wires the
+operation does not act on and hides the per-qubit Pauli letter. Qiskit's mpl
+drawer has no public API for anything else. The Quantikz renderer instead draws
+one labelled box per supported qubit, joined by a vertical `\vqw` rail
+(Litinski-style), so an operation's support is readable straight off the diagram.
+
+**Implementation notes:**
+- `PauliBoxOp <: Quantikz.QuantikzOp` emits the per-wire cells. Quantikz's own
+  `MultiControlU`/`Measurement`/`ParityMeasurement` are deliberately *not* reused:
+  the first two draw spanning rectangles and the latter two terminate wires via
+  `deleteoutputs`, but PBC Pauli measurements are non-destructive (`\meter`-style
+  boxes that keep the wire, not `\meterD`).
+- The environment options must not include Quantikz.jl's default `transparent`
+  key — it suppresses every `fill=` the renderer emits. `circuitstring_quantikz`
+  therefore passes its own `quantikzoptions`.
+- Column packing comes free from `Quantikz.circuit2table_compressed`; no
+  hand-rolled layering pass is needed.
+- `CircuitOp.Pauli` and `CircuitOp.PrepMagic` are not handled (same coverage as
+  `circuitplot_qiskit`).
+
 ## Development
 
 ### Workflow

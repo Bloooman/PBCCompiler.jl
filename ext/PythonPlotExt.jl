@@ -64,7 +64,6 @@ function circuitplot_qiskit(circuit::Circuit)
 
     # QuantumClifford uses '_' for identity in string(); normalize to 'I'
     pauli_chars(p::P) = [c == '_' ? 'I' : c for c in string(p) if c in "XYZ_"]
-    pauli_label(p::P) = String(pauli_chars(p))
     py0(q::Vector{Int}) = pylist(q .- 1)  # Julia 1-based → Python 0-based
 
     # Return only the non-identity Pauli chars and their corresponding qubits
@@ -122,16 +121,18 @@ function circuitplot_qiskit(circuit::Circuit)
                 (Gate(name, length(active_q), pylist([])), active_q)
             end
             CircuitOp.Measurement(; pauli, bit, qubits) => begin
-                (_, active_q) = active_pauli_qubits(pauli, qubits)
-                name = "M[$(pauli_label(pauli))]→c$(bit)"
+                # Label from the *filtered* Pauli so its letters line up 1:1 with
+                # the gate's qubit arguments (and hence the wire index labels).
+                (label, active_q) = active_pauli_qubits(pauli, qubits)
+                name = "M[$(label)]→c$(bit)"
                 push!(meas_names, name)
                 (Gate(name, length(active_q), pylist([])), active_q)
             end
             CircuitOp.PauliConditional(; control_pauli, control_qubits, target_pauli, target_qubits) => begin
-                (_, active_ctrl) = active_pauli_qubits(control_pauli, control_qubits)
-                (_, active_tgt)  = active_pauli_qubits(target_pauli, target_qubits)
+                (ctrl_label, active_ctrl) = active_pauli_qubits(control_pauli, control_qubits)
+                (tgt_label, active_tgt)   = active_pauli_qubits(target_pauli, target_qubits)
                 all_q = vcat(active_ctrl, active_tgt)
-                name = "C($(pauli_label(control_pauli)))\n↓\nT($(pauli_label(target_pauli)))"
+                name = "C($(ctrl_label))\n↓\nT($(tgt_label))"
                 push!(pauli_cond_names, name)
                 (Gate(name, length(all_q), pylist([])), all_q)
             end

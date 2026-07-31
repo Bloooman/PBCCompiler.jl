@@ -9,7 +9,8 @@ export Circuit, CircuitOp, MeasurementResult,
     parse_input, save_result, load_result,
     random_test_circuit,
     get_distribution, get_graph, get_hypergraph, weight_std_graph,
-    circuitplot, circuitplot!, circuitplot_axis
+    circuitplot, circuitplot!, circuitplot_axis,
+    circuitplot_quantikz, circuitstring_quantikz
 
 include("type.jl")
 include("io.jl")

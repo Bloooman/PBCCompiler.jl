@@ -108,6 +108,42 @@ A matplotlib `Figure` with the circuit diagram. Qubit count and
 classical bit count are inferred from the maximum indices in the circuit.
 """
 function circuitplot_qiskit end
+
+"""
+    circuitplot_quantikz(circuit::Circuit; kwargs...)
+    circuitplot_quantikz(circuit::Circuit, filename::AbstractString; kwargs...)
+
+Render a Circuit as a quantikz circuit diagram.
+
+Requires the Quantikz package to be loaded. Each operation is drawn as one
+labelled box per qubit it actually acts on, joined by a vertical rail, so the
+support of an operation can be read straight off the diagram; qubits an
+operation does not touch stay clear. Box fill encodes the operation kind and the
+subscript carries the rotation angle, measurement bit, or conditioning bit.
+
+The one-argument form returns an image. The two-argument form writes to
+`filename` (`.tex` for LaTeX source, `.pdf` for the compiled document, any other
+extension for an image).
+
+# Keyword arguments
+- `scale`: magnification of the rendered diagram (default `5`)
+- `colors`: overrides for the per-kind fill colors, keyed by `:measurement`,
+  `:halfpi`, `:quatpi`, `:eighpi`, `:control`, `:target`
+- `showangles`: `:none` (default, angle read off the fill color), `:first`, or `:all`
+- `showlabels`: prefix each wire with its index, `q1..qn` and `c1..cm` (default `true`)
+- `options`: option list for the `quantikz` environment
+"""
+function circuitplot_quantikz end
+
+"""
+    circuitstring_quantikz(circuit::Circuit; kwargs...) -> String
+
+Return the LaTeX `quantikz` source for a Circuit, ready to paste into a document.
+
+Requires the Quantikz package to be loaded. Takes the same keyword arguments as
+[`circuitplot_quantikz`](@ref) apart from `scale`, and needs no LaTeX toolchain.
+"""
+function circuitstring_quantikz end
 ##
 """
     plot_partition(g::SimpleWeightedGraph, part::Vector{Int32}) -> Figure
