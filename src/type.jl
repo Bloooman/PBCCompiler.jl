@@ -115,6 +115,22 @@ end
 
 SimRuntime() = SimRuntime(nothing, nothing,[])
 
+struct StabilizerRuntime <: AbstractRuntime
+    """GeneralizedStabilizer object holding current quantum state within quantum computer"""
+    quantum_memory::Union{GeneralizedStabilizer, Nothing}
+    """
+    Magic qubits whose deferred T gate has already been applied. The magic
+    register starts as the stabilizer state |+>^n and each T gate is applied
+    lazily, right before the first measurement touching its qubit, keeping the
+    chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
+    """
+    activated::Union{BitVector, Nothing}
+    """Number of non-zero elements in the density matrix at each simulation"""
+    invsparsity_history::Vector{Int}
+end
+
+StabilizerRuntime() = StabilizerRuntime(nothing, nothing,[])
+
 """Runtime that replaces quantum measurements with classical coin flips of a fixed bias."""
 struct DummyRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""

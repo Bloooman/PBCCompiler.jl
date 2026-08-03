@@ -83,6 +83,15 @@ function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::SimRunt
     return rt
 end
 
+function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::StabilizerRuntime)
+    num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
+    quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
+    @debug "Number of gadgets inserted" num_gadgets _group=:api
+    @reset rt.quantum_memory=quantum_memory
+    @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
+    return rt
+end
+
 function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::R) where R<:AbstractRuntime
     return rt
 end

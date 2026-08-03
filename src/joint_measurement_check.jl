@@ -119,6 +119,29 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
     end
 end
 
+function get_measurement_result(state::CompilerState{StabilizerRuntime}, op::CircuitOp.Type)
+    isa_variant(op, CircuitOp.Measurement) || return nothing
+    rt = state.runtime
+    md = state.stabilizer_group
+    num_qubits = nqubits(md)
+    pauli = embed(num_qubits, op.qubits, op.pauli)
+    projection = project!(md, pauli)
+    if projection[3] === nothing
+        (rt, result) = quantum_measurement(rt, op, num_qubits)
+        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        phs = phases(stabilizerview(md))
+        phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+        @reset state.runtime = rt
+        return (QuantumRes(pauli, result), state)
+    elseif projection[2] == 0
+        result = Bool(projection[3]>>1)
+        return (ClassicalDetermRes(pauli, result), state)
+    else
+        result = Bool(projection[3]>>1)
+        return (ClassicalRandomRes(pauli, result), state)
+    end
+end
+
 function get_measurement_result(state::CompilerState{TraversalRuntime}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     result = rand() < state.runtime.p1_outcome_probs
@@ -155,7 +178,7 @@ end
     quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
 Perform quantum measurement simulation on given state using QuantumClifford.jl backend
 """
-function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int)
+function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S<:AbstractRuntime
     quantum_state = rt.quantum_memory
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
