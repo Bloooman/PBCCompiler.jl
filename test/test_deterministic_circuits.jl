@@ -8,7 +8,7 @@
 # the measured (-1)^result sign or the target bit flips on random shots.
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, ExpHalfPiPauli, parse_input, SimRuntime
+using PBCCompiler: Circuit, CircuitOp, ExpHalfPiPauli, parse_input, SimRuntime, StabilizerRuntime
 using Moshi.Data: isa_variant
 using QuantumClifford: @P_str, Stabilizer, single_z
 
@@ -21,34 +21,40 @@ basis_state(bits) = Stabilizer([b ? -single_z(length(bits), q) : single_z(length
                                 for (q, b) in enumerate(bits)])
 
 """
-Run `body` on the computational-basis input `bits` and return the classical
-register. The two prep modes exercise different input paths: `:gates` prepends
-X rotations, routing the input through the Clifford-commutation machinery,
-while `:tableau` passes the basis state via the `input_state` argument,
-routing it through the stabilizer-group sign handling. Both must agree.
+Run `body` on the computational-basis input `bits` under runtime `rt` and return
+the classical register. The two prep modes exercise different input paths:
+`:gates` prepends X rotations, routing the input through the Clifford-commutation
+machinery, while `:tableau` passes the basis state via the `input_state`
+argument, routing it through the stabilizer-group sign handling. Both must agree.
 """
-function run_on_basis_input(body, bits, mode)
+function run_on_basis_input(body, bits, mode, rt=SimRuntime())
     if mode == :gates
         prep = CircuitOp.Type[xgate(q) for (q, b) in enumerate(bits) if b]
-        state = PBCCompiler.run(Circuit([prep; body]), SimRuntime())
+        state = PBCCompiler.run(Circuit([prep; body]), rt)
     else
-        state = PBCCompiler.run(Circuit(copy(body)), SimRuntime(), basis_state(bits))
+        state = PBCCompiler.run(Circuit(copy(body)), rt, basis_state(bits))
     end
     return collect(Bool, state.classical_register[1:length(bits)])
 end
 
-# Only SimRuntime is a faithful simulator. DummyRuntime coins every quantum
-# outcome at a fixed bias, but later gadget measurements have true conditional
-# probabilities other than 1/2 (the magic memory is already partially
-# projected), so it can take physically impossible branches that no Pauli
-# correction can compensate — deterministic circuits do NOT come out
-# deterministic under DummyRuntime, by design.
-@testset "Toffoli truth table (SimRuntime, $mode prep)" for mode in (:gates, :tableau)
+# Runtimes that simulate the magic register rather than coining outcomes: a
+# deterministic circuit must come out deterministic under each, on every shot.
+const SIMULATING_RUNTIMES = (SimRuntime, StabilizerRuntime)
+
+# DummyRuntime is excluded on purpose: it coins every quantum outcome at a fixed
+# bias, but later gadget measurements have true conditional probabilities other
+# than 1/2 (the magic memory is already partially projected), so it can take
+# physically impossible branches that no Pauli correction can compensate —
+# deterministic circuits do NOT come out deterministic under DummyRuntime, by
+# design. SimRuntime and StabilizerRuntime both simulate the magic register, so
+# both are held to the truth table.
+@testset "Toffoli truth table ($(nameof(rt)), $mode prep)" for rt in SIMULATING_RUNTIMES,
+                                                             mode in (:gates, :tableau)
     ccx = parse_input(joinpath(FIXTURES, "toffoli3.qasm"))
     for a in (false, true), b in (false, true), c in (false, true)
         expected = Bool[a, b, xor(c, a & b)]
         for shot in 1:3
-            @test run_on_basis_input(ccx, [a, b, c], mode) == expected
+            @test run_on_basis_input(ccx, [a, b, c], mode, rt()) == expected
         end
     end
 end
@@ -57,7 +63,8 @@ end
 # |cin, a, b, d⟩ ↦ |cin, cin⊕a, cin⊕a⊕b, d⊕maj(cin,a,b)⟩ — i.e. q2 ends up
 # holding the sum and q3 the carry-out (XORed onto its initial value d).
 # Truth table verified against an independent dense statevector simulation.
-@testset "adder_n4 truth table (SimRuntime, $mode prep)" for mode in (:gates, :tableau)
+@testset "adder_n4 truth table ($(nameof(rt)), $mode prep)" for rt in SIMULATING_RUNTIMES,
+                                                              mode in (:gates, :tableau)
     adder = parse_input(joinpath(FIXTURES, "adder_n4.qasm"))
 
     # The fixture is kept verbatim, so it starts with its own input prep
@@ -76,16 +83,16 @@ end
                         xor(cin, a, b),
                         xor(d, maj(cin, a, b))]
         for shot in 1:2
-            @test run_on_basis_input(body, [cin, a, b, d], mode) == expected
+            @test run_on_basis_input(body, [cin, a, b, d], mode, rt()) == expected
         end
     end
 end
 
 # The unmodified file (input cin=1, a=1, b=0, d=0) must give the QASMBench
 # reference output c[0..3] = 1,0,0,1.
-@testset "adder_n4 verbatim file" begin
+@testset "adder_n4 verbatim file ($(nameof(rt)))" for rt in SIMULATING_RUNTIMES
     adder = parse_input(joinpath(FIXTURES, "adder_n4.qasm"))
-    state = PBCCompiler.run(Circuit(copy(adder)), SimRuntime())
+    state = PBCCompiler.run(Circuit(copy(adder)), rt())
     @test collect(Bool, state.classical_register[1:4]) == Bool[1, 0, 0, 1]
 end
 
