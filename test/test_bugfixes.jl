@@ -377,6 +377,13 @@ end
         Circuit([Measurement(P"Z", 1, [1])]), Stabilizer([P"Z_", P"_Z"]))
 end
 
+@testset "StabilizerRuntime is exported alongside the other runtimes" begin
+    exported = names(PBCCompiler)
+    for rt in (:SimRuntime, :StabilizerRuntime, :DummyRuntime, :TraversalRuntime)
+        @test rt in exported
+    end
+end
+
 @testset "get_distribution on circuits with no classical bits" begin
     (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
     @test distribution == [3]

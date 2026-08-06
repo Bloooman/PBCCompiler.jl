@@ -115,6 +115,16 @@ end
 
 SimRuntime() = SimRuntime(nothing, nothing,[])
 
+"""
+Runtime that simulates the full register — data qubits and magic qubits together —
+with QuantumClifford's `GeneralizedStabilizer`.
+
+Unlike [`SimRuntime`](@ref), which simulates only the magic register and resolves
+outcomes that anticommute with the stabilizer group by splicing compensating
+rotations into the circuit, this runtime performs an actual quantum measurement
+for every non-deterministic outcome. It therefore never produces a
+`ClassicalRandomRes`.
+"""
 struct StabilizerRuntime <: AbstractRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Union{GeneralizedStabilizer, Nothing}

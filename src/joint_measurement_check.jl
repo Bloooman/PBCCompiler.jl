@@ -154,7 +154,8 @@ function get_measurement_result(state::CompilerState{StabilizerRuntime}, op::Cir
         phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
         @reset state.runtime = rt
         return (QuantumRes(pauli, result), state)
-    else projection[2] == 0
+    else
+        # Determined outcome: `project!` reports anticom index 0 here
         result = Bool(projection[3]>>1)
         return (ClassicalDetermRes(pauli, result), state)
     end
