@@ -303,6 +303,50 @@ end
     end
 end
 
+@testset "gadgetize keeps Pauli letters attached to their qubits" begin
+    # `paulis` is positional in `op.qubits`; `affectedqubits` sorts. For an
+    # unsorted qubit list the two disagree, and the gadget silently measures the
+    # wrong observable. Z on qubit 2 and X on qubit 1 must stay that way.
+    op = ExpEighPiPauli(P"ZX", [2, 1])
+    gadget = PBCCompiler.gadgetize(op, 2, 2, 1)
+
+    meas = gadget[1]
+    @test meas.qubits == [1, 2, 3]
+    @test meas.pauli == P"XZZ"          # X on q1, Z on q2, Z on the magic qubit
+
+    # The conditional corrections carry the same Pauli and must agree with it
+    for correction in (gadget[3], gadget[4])
+        @test correction.op.qubits == [1, 2]
+        @test correction.op.pauli == P"XZ"
+    end
+
+    # Sorted input is unaffected
+    sorted_gadget = PBCCompiler.gadgetize(ExpEighPiPauli(P"ZX", [1, 2]), 2, 2, 1)
+    @test sorted_gadget[1].pauli == P"ZXZ"
+
+    # A negative phase must survive the permutation
+    @test PBCCompiler.gadgetize(ExpEighPiPauli(-P"ZX", [2, 1]), 2, 2, 1)[1].pauli == -P"XZZ"
+end
+
+@testset "unsorted-qubit pi/8 rotation compiles to the right observable" begin
+    # exp(-i*pi/8*P) with P = X on qubit 1, Z on qubit 2, written unsorted as
+    # P"ZX" on [2,1]. On |00> that rotates within span{|00>, |10>}, so bit 1
+    # picks up P(1) = sin^2(pi/8) while bit 2 stays 0. Under the letter/qubit
+    # mismatch the observable becomes Z1*X2 instead, which rotates within
+    # span{|00>, |01>} -- the randomness moves to bit 2 and bit 1 goes
+    # deterministic, so both assertions below flip.
+    circuit() = Circuit([ExpEighPiPauli(P"ZX", [2, 1]),
+                         Measurement(P"Z", 1, [1]),
+                         Measurement(P"Z", 2, [2])])
+    nshots = 1000
+    for rt in (SimRuntime, StabilizerRuntime)
+        states = [run(circuit(), rt()) for _ in 1:nshots]
+        ones = count(s -> s.classical_register[1] === true, states)
+        @test isapprox(ones / nshots, sin(pi/8)^2; atol = 0.06)
+        @test all(s -> s.classical_register[2] === false, states)
+    end
+end
+
 @testset "get_distribution on circuits with no classical bits" begin
     (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
     @test distribution == [3]

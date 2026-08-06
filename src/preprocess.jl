@@ -118,8 +118,15 @@ Each BitConditional CircuitOp contains a gadget(a set of four consecutive Circui
 """
 function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_bit::Int, num_magic_state::Int)
     if isa_variant(op,CircuitOp.ExpEighPiPauli)
-        P=paulis(op)
-        Q=affectedqubits(op)
+        # `paulis` is positional in `op.qubits` while `affectedqubits` sorts, so
+        # the letters must be permuted alongside the qubits or they detach from
+        # them whenever `op.qubits` is unsorted (same sortperm pairing as in
+        # `remove_pauliconditional`). Rotations conjugated to full width already
+        # arrive sorted, which is why this only shows up for ones that reach
+        # gadgetization untouched.
+        perm=sortperm(op.qubits)
+        Q=op.qubits[perm]
+        P=paulis(op)[perm]
         magic_state=[num_input_qubit+num_magic_state]
         pauli=tensor(P,P"Z")
         qubit=[Q;magic_state]
