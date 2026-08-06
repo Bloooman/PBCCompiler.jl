@@ -148,6 +148,38 @@ function to_result(state::CompilerState)
     CompilationResult(state.measurement_results, qpu_load, copy(stabilizerview(state.stabilizer_group)), length(qpu_load))
 end
 
+function to_result(state::CompilerState{StabilizerRuntime})
+    num_qubits = nqubits(state.stabilizer_group)
+    quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
+    num_input_qubits = num_qubits - length(state.runtime.activated)
+    magicqubits = num_input_qubits + 1 : num_qubits
+
+    excluded_local = Set{Int}()
+    qpu_load = Vector{MeasurementResult.Type}()
+
+    for mr in quantum
+        magic_p = mr.pauli[magicqubits]
+        for i in excluded_local
+            magic_p[i] = (false, false)
+        end
+        non_id = findall(i -> let (x, z) = magic_p[i]; x || z end, 1:length(magic_p))
+        if length(non_id) == 1
+            push!(excluded_local, non_id[1])
+        else
+            push!(qpu_load, QuantumRes(magic_p, mr.result))
+        end
+    end
+
+    keep_qubits = collect(1:num_input_qubits)
+    s_sub = stabilizerview(state.stabilizer_group)[:, keep_qubits]
+    non_trivial_rows = [i for i in 1:length(s_sub) if !iszero(s_sub[i].xz)]
+    s_clean = s_sub[non_trivial_rows]
+
+    # CompilationResult keeps the plain Stabilizer representation (stable
+    # serialization format); extract it from the working tableau
+    CompilationResult(state.measurement_results, qpu_load, s_clean, length(qpu_load))
+end
+
 """
     run(input_circuit::Circuit, rt::AbstractRuntime, input_state::Union{Stabilizer, Nothing}=nothing) -> CompilerState
 
