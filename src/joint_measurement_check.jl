@@ -2,17 +2,39 @@
 Helper functions to check the first PPM in circuit, determine MeasurementResultType: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 """
 ##
-using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases, UnitaryPauliChannel, invsparsity
+using QuantumClifford: project!, Stabilizer, one, GeneralizedStabilizer, apply!, pcT, projectrand!, nqubits, comm, stabilizerview, phases, UnitaryPauliChannel, invsparsity, MixedDestabilizer, rank
 using Moshi.Data: variant_name, isa_variant
 using Accessors: @reset
 ##
 
+"""
+    validate_input(circuit::Circuit, input::Stabilizer)
+
+Check that a user-supplied input state can be used with `circuit`: it must fit
+within the circuit's qubit register, and it must be fully stabilized — one
+independent generator per qubit.
+
+Throws an `ArgumentError` describing the violation; returns `nothing` otherwise.
+"""
 function validate_input(circuit::Circuit, input::Stabilizer)
-    if get_circuit_width(circuit)<length(input[1])
+    num_qubits = nqubits(input)
+    if get_circuit_width(circuit) < num_qubits
         throw(ArgumentError("Input state has more qubits than circuit input"))
-    else
-        nothing
     end
+    # Gadget measurements factor into a data part and a magic part, and
+    # `data_part_eigenvalue` requires the data part to have a definite eigenvalue
+    # under the stabilizer group — which holds only at full rank. Reject a
+    # mixed/underdetermined state here, where the message can name the cause,
+    # rather than deep inside a gadget measurement. `rank` (not the row count)
+    # also catches generators that are present but linearly dependent.
+    state_rank = rank(MixedDestabilizer(input))
+    if state_rank != num_qubits
+        throw(ArgumentError(
+            "Input state must be fully stabilized: it has rank $state_rank over " *
+            "$num_qubits qubits ($(length(input)) generators given). Mixed or " *
+            "underdetermined input states are not supported by the compilation pipeline."))
+    end
+    return nothing
 end
 
 function create_hadamard_basis_state(num_qubit::Int)

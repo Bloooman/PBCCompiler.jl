@@ -145,8 +145,12 @@ end
 
 
 """
-s is the stabilized part of input_state defined by user in the form of a stabilzier group
-Function will expand the stabilizer group to cover the entire circuit width by adding Identities to each stabilizer
+Expand the input state's stabilizer group to cover the entire circuit width by
+padding each generator with identities.
+
+`s` must be a fully stabilized state — one independent generator per qubit.
+Mixed or underdetermined input states are not supported by the compilation
+pipeline and are rejected up front by [`validate_input`](@ref).
 """
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)

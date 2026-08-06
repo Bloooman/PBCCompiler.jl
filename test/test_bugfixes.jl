@@ -347,6 +347,36 @@ end
     end
 end
 
+@testset "input states must be fully stabilized" begin
+    # The gadget path factors each measurement into a data part and a magic part
+    # and needs the data part to have a definite eigenvalue, which only holds at
+    # full rank. Underdetermined states used to get through validation and fail
+    # much later -- either inside `embed` while padding the generators, or with
+    # "no definite eigenvalue" from within a gadget measurement.
+    circuit = Circuit([ExpEighPiPauli(P"Z", [2]),
+                       Measurement(P"X", 1, [2]),
+                       Measurement(P"Z", 2, [1])])
+
+    # Too few generators
+    @test_throws ArgumentError run(copy(circuit), SimRuntime(), Stabilizer([P"Z_"]))
+    # Right number of generators, but linearly dependent -> still rank 1
+    @test_throws ArgumentError run(copy(circuit), SimRuntime(), Stabilizer([P"Z_", P"Z_"]))
+    # Full rank is accepted
+    @test run(copy(circuit), SimRuntime(), Stabilizer([P"Z_", P"_X"])) isa CompilerState
+
+    # The message must name the cause rather than surfacing an embed/eigenvalue error
+    err = try
+        run(copy(circuit), SimRuntime(), Stabilizer([P"Z_"]))
+    catch e
+        e
+    end
+    @test occursin("fully stabilized", err.msg)
+
+    # The width check still fires, and no longer needs a non-empty tableau to run
+    @test_throws ArgumentError PBCCompiler.validate_input(
+        Circuit([Measurement(P"Z", 1, [1])]), Stabilizer([P"Z_", P"_Z"]))
+end
+
 @testset "get_distribution on circuits with no classical bits" begin
     (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
     @test distribution == [3]
