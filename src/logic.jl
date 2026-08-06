@@ -46,7 +46,7 @@ function build_compilerstate(input_circuit::Circuit, rt::S, input_state::Union{S
     # A circuit can cancel to nothing (e.g. a rotation followed by its inverse)
     isempty(circuit) && return _empty_state(circuit, rt)
     shared = build_shared(circuit, input_state)
-    rt_data = build_rt_data(circuit, num_input_qubits, rt)
+    rt_data = build_rt_data(circuit, input_state, num_input_qubits, rt)
     CompilerState(; shared..., runtime=rt_data)
 end
 
@@ -74,7 +74,7 @@ Build the runtime data from an already-preprocessed circuit. For `SimRuntime`,
 allocate one magic-state qubit per gadget; gadgetization appends its magic
 qubits above the input width, so the gadget count is the width difference.
 """
-function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::SimRuntime)
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::SimRuntime)
     num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
     quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
@@ -83,16 +83,21 @@ function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::SimRunt
     return rt
 end
 
-function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::StabilizerRuntime)
-    num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
-    quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::StabilizerRuntime)
+    num_qubits = get_circuit_width(preprocessed)
+    num_gadgets = num_qubits - num_input_qubits
+    input = make_stabilizer_list(input_state, preprocessed)
+    generators = one(Stabilizer, num_qubits; basis=:X)
+    state = Stabilizer(generators)
+    state[1:num_input_qubits] = input
+    quantum_memory = GeneralizedStabilizer(state)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
     @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
     return rt
 end
 
-function build_rt_data(preprocessed::Circuit, num_input_qubits::Int, rt::R) where R<:AbstractRuntime
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::R) where R<:AbstractRuntime
     return rt
 end
 

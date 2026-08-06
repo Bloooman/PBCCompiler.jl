@@ -128,17 +128,13 @@ function get_measurement_result(state::CompilerState{StabilizerRuntime}, op::Cir
     projection = project!(md, pauli)
     if projection[3] === nothing
         (rt, result) = quantum_measurement(rt, op, num_qubits)
-        result ⊻= data_part_eigenvalue(state, op, num_qubits)
         phs = phases(stabilizerview(md))
         phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
         @reset state.runtime = rt
         return (QuantumRes(pauli, result), state)
-    elseif projection[2] == 0
+    else projection[2] == 0
         result = Bool(projection[3]>>1)
         return (ClassicalDetermRes(pauli, result), state)
-    else
-        result = Bool(projection[3]>>1)
-        return (ClassicalRandomRes(pauli, result), state)
     end
 end
 
@@ -207,6 +203,28 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     return (rt, result)
 end
 
+function quantum_measurement(rt::StabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
+    num_input_qubits = num_qubits - length(rt.activated)
+    quantum_state = rt.quantum_memory
+    if quantum_state === nothing
+        throw(ArgumentError("Magic State not initiated"))
+    end
+    real_p=embed(num_qubits, op.qubits, op.pauli)
+    for k in op.qubits[num_input_qubits+1:end]
+        (x, z) = real_p[k]
+        if (x || z) && !rt.activated[k-num_input_qubits]
+            apply!(quantum_state, embedded_pcT(num_qubits, k))
+            rt.activated[k-num_input_qubits] = true
+        end
+    end
+    real_p=embed(num_qubits, op.qubits, op.pauli)
+    bit_result = projectrand!(quantum_state, real_p)[2]
+    result=Bool(bit_result>>1)
+    append!(rt.invsparsity_history,invsparsity(quantum_state))
+    rt = @reset rt.quantum_memory = quantum_state
+    return (rt, result)
+end
+
 """
     data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) -> Bool
 
@@ -221,7 +239,7 @@ observable's own phase is excluded: it is already carried by the magic-part
 slice inside `quantum_measurement`. Runtimes without a magic-state memory
 (e.g. `DummyRuntime`) return `false`.
 """
-function data_part_eigenvalue(state::CompilerState{SimRuntime}, op::CircuitOp.Type, num_qubits::Int)
+function data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int)
     memory = state.runtime.quantum_memory
     memory === nothing && return false
     num_data = num_qubits - length(memory.stab)
@@ -235,7 +253,7 @@ function data_part_eigenvalue(state::CompilerState{SimRuntime}, op::CircuitOp.Ty
     return Bool(projection[3] >> 1)
 end
 
-data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) = false
+data_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
     quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
