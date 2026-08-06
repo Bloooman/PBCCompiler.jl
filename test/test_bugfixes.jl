@@ -6,9 +6,9 @@ using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQu
     validate_CircuitOp, PauliQubitMismatchError, find_variant_indices, group_nonclifford,
     quantum_measurement, resolve_conditionals, get_distribution, get_graph,
     weight_std_graph, to_result, run, CompilerState, CompilationResult, MeasurementResult,
-    SimRuntime, DummyRuntime
+    SimRuntime, DummyRuntime, StabilizerRuntime
 using .MeasurementResult: ClassicalDetermRes
-using QuantumClifford: @P_str, @S_str, MixedDestabilizer, nqubits
+using QuantumClifford: @P_str, @S_str, MixedDestabilizer, nqubits, Stabilizer
 using Moshi.Derive: @derive
 using Moshi.Match: isa_variant
 using Graphs: nv
@@ -271,6 +271,36 @@ end
     state = run(copy(circuit), SimRuntime())
     input_width = 2
     @test nqubits(state.stabilizer_group) - input_width == 2
+end
+
+@testset "deferred T fires when a gadget's support is not the full register" begin
+    # A pi/8 rotation with no Clifford ahead of it reaches `gadgetize` with its
+    # original (partial) qubit list, so the gadget measurement's support is
+    # [1, magic] rather than the full 1:width. The lazy-T activation must still
+    # find the magic qubit. Selecting it by position within `op.qubits` instead
+    # of by value yields an empty selection here and silently skips the T,
+    # leaving the magic qubit in |+>. Circuits whose rotations all get conjugated
+    # to full width (toffoli3, adder_n4) mask this: there position and value
+    # coincide, so those fixtures cannot catch it.
+    input = Stabilizer([P"X_", P"_Z"])          # |+>|0>
+    circuit() = Circuit([ExpEighPiPauli(P"Z", [1]),
+                         Measurement(P"X", 1, [1]),
+                         Measurement(P"Z", 2, [2])])
+
+    for rt in (SimRuntime, StabilizerRuntime)
+        state = run(circuit(), rt(), copy(input))
+        @test all(state.runtime.activated)
+    end
+
+    # T|+> measured along X gives P(-1) = sin^2(pi/8) ~ 0.1464. With the T
+    # skipped the magic qubit stays |+> and the frequency comes out ~0.25, far
+    # outside the tolerance below (~5 sigma at this shot count).
+    nshots = 1000
+    for rt in (SimRuntime, StabilizerRuntime)
+        ones = count(_ -> run(circuit(), rt(), copy(input)).classical_register[1] === true,
+                     1:nshots)
+        @test isapprox(ones / nshots, sin(pi/8)^2; atol = 0.06)
+    end
 end
 
 @testset "get_distribution on circuits with no classical bits" begin

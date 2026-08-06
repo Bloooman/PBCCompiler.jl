@@ -210,14 +210,22 @@ function quantum_measurement(rt::StabilizerRuntime, op::CircuitOp.Type, num_qubi
         throw(ArgumentError("Magic State not initiated"))
     end
     real_p=embed(num_qubits, op.qubits, op.pauli)
-    for k in op.qubits[num_input_qubits+1:end]
+    # Deferred T gates: activate every magic qubit this measurement touches whose
+    # T has not been applied yet (see `create_magic_state`). Select those qubits
+    # by value: `op.qubits` is the operation's support, so slicing it at the
+    # register-partition offset only lands on the magic qubits when the support
+    # happens to be the contiguous run 1:num_qubits — which is the case after a
+    # rotation has been conjugated to full width, but not for one that reached
+    # `gadgetize` unconjugated. There the slice comes out empty and the T is
+    # silently skipped.
+    for k in op.qubits
+        k > num_input_qubits || continue
         (x, z) = real_p[k]
         if (x || z) && !rt.activated[k-num_input_qubits]
             apply!(quantum_state, embedded_pcT(num_qubits, k))
             rt.activated[k-num_input_qubits] = true
         end
     end
-    real_p=embed(num_qubits, op.qubits, op.pauli)
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
     append!(rt.invsparsity_history,invsparsity(quantum_state))
