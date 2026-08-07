@@ -54,6 +54,11 @@ Return the sorted list of all qubit indices affected by any operation in the cir
 """
 function affectedqubits(circuit::Circuit)
     isempty(circuit) && return Int[]
-    all_qubits = reduce(vcat, affectedqubits(op) for op in circuit)
-    return sort(unique(all_qubits))
+    # Accumulate into one vector rather than `reduce(vcat, ...)`, which
+    # reallocates and recopies the whole result once per operation
+    all_qubits = Int[]
+    for op in circuit
+        append!(all_qubits, affectedqubits(op))
+    end
+    return sort!(unique!(all_qubits))
 end

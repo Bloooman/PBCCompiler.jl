@@ -5,9 +5,19 @@ Tools for Pauli Based Computation (PBC), a modality of quantum computation.
 ## Project Structure
 
 - `src/PBCCompiler.jl` - Main module with circuit operations and compiler infrastructure
+- `src/type.jl` - `CircuitOp`/`MeasurementResult` ADTs, runtimes, `CompilerState`
 - `src/traversal.jl` - Circuit traversal utilities for gate simplifications
+- `src/pair_transformation.jl` - The 2->2 kernels driven by `traversal` (conjugation, merging, commutation)
+- `src/preprocess.jl` - The `preprocess_circuit` compilation pipeline
+- `src/joint_measurement_check.jl` - Measurement outcomes against the tableau and magic register
+- `src/logic.jl` - `build_compilerstate`, `execute!`, `run`, `to_result`
+- `src/statistics.jl` - Shot sampling and interaction-graph extraction
+- `src/io.jl` - QASM parsing, result save/load
+- `src/random_circuit.jl` - Random circuit generation
 - `src/affectedqubits.jl` - Query functions for qubit indices affected by operations
 - `src/plotting.jl` - Plotting function stubs (scaffolding for extensions)
+- `src/partition.jl` - Branch-enumeration search. **Not in the module's include
+  list**, i.e. currently dead code
 - `ext/PBCCompilerMakieExt/` - Makie extension for circuit visualization
 - `test/` - Test suite using TestItemRunner.jl
 - `benchmark/` - Performance benchmarks using BenchmarkTools.jl
@@ -38,9 +48,40 @@ The `preprocess_circuit` function transforms circuits through stages:
 6. Remove post-measurement operations
 
 ### Runtime
-- `QuantumRuntime` - Abstract type for quantum execution backends
-- `MockRuntime` - Testing runtime where measurements return deterministic results
-- `ComputerState` - Tracks circuit, instruction pointer, and memory state
+- `AbstractRuntime` - Supertype of the measurement backends
+- `SimRuntime` - Simulates the magic register with a `GeneralizedStabilizer`;
+  outcomes that anticommute with the stabilizer group become coin flips resolved
+  by splicing compensating rotations into the circuit
+- `StabilizerRuntime` - Simulates the full register (data + magic) together, so
+  it projects for every non-deterministic outcome and never yields a
+  `ClassicalRandomRes`
+- `DummyRuntime` / `TraversalRuntime` - Replace quantum measurements with
+  classical coin flips of a fixed bias
+- `CompilerState{R,T}` - Tracks measurement results, tableau, classical
+  register, circuit, instruction pointer and runtime. Parameterized on the
+  runtime and tableau types to keep the execution loop type stable
+
+Runtimes carry mutable contents (`quantum_memory`, `activated`,
+`invsparsity_history`), so `copy(::CompilerState)` copies them. Anything that
+derives two states from one compilation must go through `copy`, never share a
+runtime.
+
+### Compiling once, running many shots
+`PBCCompiler.run` is `build_compilerstate` followed by `execute!`. Compilation
+is shot-independent, so sampling loops compile once and run each shot off a
+copy:
+
+```julia
+compiled = build_compilerstate(circuit, SimRuntime())
+shots = [execute!(copy(compiled)) for _ in 1:1000]
+```
+
+`get_distribution` and `weight_std_graph` already do this.
+
+**Reproducibility**: outcomes come from the global RNG (`Random.seed!` makes a
+run reproducible). There is no `rng` keyword on `run`: `QuantumClifford`'s
+`projectrand!` takes no RNG argument, so one cannot be threaded all the way
+through without an upstream change. `random_test_circuit` does accept `rng`.
 
 ### Circuit Traversal
 The `traversal` function (`src/traversal.jl`) applies transformations to adjacent pairs of circuit operations:

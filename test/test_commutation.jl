@@ -86,3 +86,49 @@ end
 end
 
 end
+
+@testitem "paulis_commute matches check_commutation" tags=[:check_commutation] begin
+##
+using PBCCompiler
+using PBCCompiler: CircuitOp, check_commutation, paulis_commute
+using QuantumClifford: PauliOperator, @P_str
+
+# All Paulis of length n as (x, z) bit patterns.
+allpaulis(n) = [PauliOperator(0x00,
+                              [b & (1 << (k - 1)) != 0 for k in 1:n],
+                              [b & (1 << (n + k - 1)) != 0 for k in 1:n])
+                for b in 0:(4^n - 1)]
+
+mk(kind, p, q) = kind == 1 ? CircuitOp.ExpHalfPiPauli(p, q) :
+                 kind == 2 ? CircuitOp.ExpQuatPiPauli(p, q) :
+                 kind == 3 ? CircuitOp.ExpEighPiPauli(p, q) :
+                             CircuitOp.Measurement(p, 1, q)
+
+# Supports that overlap fully, partially and not at all, sorted and unsorted --
+# unsorted lists are the case where pairing letters with qubits by position
+# matters.
+supports = [[1], [2], [1, 2], [2, 1], [2, 3], [1, 2, 3], [3, 2, 1], [1, 3], [4]]
+
+@testset "agrees with the embedding-based check" begin
+    mismatches = 0
+    for qa in supports, qb in supports
+        for pa in allpaulis(length(qa)), pb in allpaulis(length(qb))
+            (iszero(pa.xz) || iszero(pb.xz)) && continue
+            for ka in 1:4, kb in 1:4
+                op1 = mk(ka, pa, qa)
+                op2 = mk(kb, pb, qb)
+                mismatches += (check_commutation(op1, op2) == 0x00) != paulis_commute(op1, op2)
+            end
+        end
+    end
+    @test mismatches == 0
+end
+
+@testset "does not allocate" begin
+    op1 = CircuitOp.ExpQuatPiPauli(P"XY", [1, 3])
+    op2 = CircuitOp.Measurement(P"ZXY", 1, [3, 1, 2])
+    paulis_commute(op1, op2)  # compile
+    @test (@allocated paulis_commute(op1, op2)) == 0
+end
+##
+end

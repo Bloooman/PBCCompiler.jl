@@ -106,6 +106,51 @@ function check_commutation(op1::CircuitOp.Type, op2::CircuitOp.Type)
 end
 
 """
+Largest `|q1| * |q2|` for which [`paulis_commute`](@ref) walks the supports
+directly instead of falling back to the bit-parallel `comm`. See the comment at
+the branch for how this was chosen.
+"""
+const PAULI_WALK_MAX_WORK = 256
+
+"""
+Test whether two Pauli-carrying operations commute, without allocating.
+
+[`check_commutation`](@ref) answers the same question by embedding both Paulis
+to a common width first, which costs two `PauliOperator` allocations per call.
+This walks the two support lists instead: a qubit outside the shared support
+carries an identity on one side and cannot contribute, and the pair
+anticommutes exactly when an odd number of shared qubits carry anticommuting
+single-qubit Paulis.
+
+Both operands must be plain Pauli-carrying variants (with `pauli` and `qubits`
+fields); conditionals are rejected by the callers before this is reached.
+"""
+function paulis_commute(op1::CircuitOp.Type, op2::CircuitOp.Type)
+    q1 = op1.qubits
+    q2 = op2.qubits
+    # The support walk is O(|q1| * |q2|) scalar work, while `comm` on embedded
+    # Paulis is bit-parallel (one word per 64 qubits) at the cost of two
+    # allocations. Operations reaching here are usually narrow, where the walk
+    # wins by a wide margin, but dense multi-qubit rotations on a large register
+    # flip that -- measured crossover is around a product of a few hundred.
+    if length(q1) * length(q2) > PAULI_WALK_MAX_WORK
+        (embedded1, embedded2) = complete_paulis(op1, op2)
+        return comm(embedded1, embedded2) == 0x00
+    end
+    p1 = paulis(op1)
+    p2 = paulis(op2)
+    anticommuting = false
+    for i in eachindex(q1)
+        j = findfirst(isequal(q1[i]), q2)
+        j === nothing && continue
+        (x1, z1) = p1[i]
+        (x2, z2) = p2[j]
+        anticommuting ⊻= (x1 & z2) ⊻ (z1 & x2)
+    end
+    return !anticommuting
+end
+
+"""
     conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type) -> Union{Tuple{CircuitOp.Type, CircuitOp.Type}, Nothing}
 
 Move a non-Clifford CircuitOp op2 pass a Clifford CircuitOp op1 and update op2 by conjugating its pauli string by op1's pauli string.
@@ -132,8 +177,11 @@ function conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type)
     conjugated_op = @match (op1, op2) begin
         (CircuitOp.ExpHalfPiPauli(), CircuitOp.ExpEighPiPauli()) ||
         (CircuitOp.ExpQuatPiPauli(), CircuitOp.ExpEighPiPauli()) => begin
-            (new_p, new_q) = conjugated_by_clifford(op1,op2)
-            CircuitOp.ExpEighPiPauli(new_p, new_q)
+            # Commuting pairs -- the overwhelming majority -- swap unchanged, so
+            # return op2 itself rather than rebuilding it at the union width
+            conjugated = conjugated_by_clifford(op1,op2)
+            conjugated === nothing && return (op2, op1)
+            CircuitOp.ExpEighPiPauli(conjugated[1], conjugated[2])
         end
         _=> nothing
     end
@@ -147,6 +195,9 @@ end
 Move a Measurement CircuitOp op2 past a Clifford CircuitOp op1 and update op2 by conjugating its Pauli string by op1's Pauli string.
 Will throw an error if op2 is not a Measurement CircuitOp. Return nothing if op1 is not a ExpHalfPiPauli or a ExpQuatPiPauli.
 
+A measurement that commutes with `op1` crosses it unchanged and keeps its own
+support; only an anticommuting one is rebuilt over the union of both supports.
+
 # Examples
 ```jldoctest
 julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
@@ -154,7 +205,15 @@ julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
 julia> M_Z=PBCCompiler.Measurement(P"Z", 1, [2]);
 
 julia> PBCCompiler.conjugate_measurement(op1, M_Z)
-(CircuitOp.Measurement(pauli=+ _Z_, bit=1, qubits=[1, 2, 3]), CircuitOp.ExpQuatPiPauli(pauli=+ XY, qubits=[1, 3]))
+(CircuitOp.Measurement(pauli=+ Z, bit=1, qubits=[2]), CircuitOp.ExpQuatPiPauli(pauli=+ XY, qubits=[1, 3]))
+```
+```jldoctest
+julia> op1 = PBCCompiler.ExpQuatPiPauli(P"X", [1]);
+
+julia> M_Z=PBCCompiler.Measurement(P"Z", 1, [1]);
+
+julia> PBCCompiler.conjugate_measurement(op1, M_Z)
+(CircuitOp.Measurement(pauli=+ Y, bit=1, qubits=[1]), CircuitOp.ExpQuatPiPauli(pauli=+ X, qubits=[1]))
 ```
 ```jldoctest
 julia> op1 = PBCCompiler.ExpQuatPiPauli(P"XY", [1, 3]);
@@ -168,9 +227,10 @@ function conjugate_measurement(op1::CircuitOp.Type, op2::CircuitOp.Type)
     conjugated_op = @match (op1, op2) begin
         (CircuitOp.ExpHalfPiPauli(), CircuitOp.Measurement()) ||
         (CircuitOp.ExpQuatPiPauli(), CircuitOp.Measurement()) => begin
-            b=op2.bit
-            (new_p, new_q) = conjugated_by_clifford(op1,op2)
-            CircuitOp.Measurement(new_p, b, new_q)
+            # See `conjugate_noncliff`: a commuting measurement crosses unchanged
+            conjugated = conjugated_by_clifford(op1,op2)
+            conjugated === nothing && return (op2, op1)
+            CircuitOp.Measurement(conjugated[1], op2.bit, conjugated[2])
         end
         _=> nothing
     end
@@ -179,20 +239,32 @@ end
 ##
 """
 Conjugate op2's Pauli by the Clifford rotation op1 (op1 must be an
-ExpHalfPiPauli or ExpQuatPiPauli). Returns the conjugated Pauli together with
-its qubit list, expanded to `1:width` over the union of both ops' supports.
-If the Paulis commute, op2's Pauli passes through unchanged; if they
-anticommute, conjugation by exp(-iπ/2·P₁) gives -P₂ and by exp(-iπ/4·P₁)
-gives i·P₁·P₂.
+ExpHalfPiPauli or ExpQuatPiPauli).
+
+Returns `nothing` when the two Paulis commute -- op2 is then unchanged and the
+caller should reuse it. Otherwise returns the conjugated Pauli together with its
+qubit list, expanded to `1:width` over the union of both ops' supports:
+conjugation by exp(-iπ/2·P₁) gives -P₂ and by exp(-iπ/4·P₁) gives i·P₁·P₂.
 """
 function conjugated_by_clifford(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    (pauli1, pauli2) = complete_paulis(op1, op2)
-    # complete_paulis already embedded both Paulis to this width
-    new_qm = length(pauli1)
-    new_q = [x for x in 1:new_qm]
-    if comm(pauli1, pauli2) == 0
-        return (pauli2, new_q)
+    # Commuting pairs return `nothing`: op2 is unchanged, so the caller reuses it
+    # as-is. Widening it to the union width -- which is all the old code did on
+    # this branch -- would allocate twice and would stick, making every later
+    # embed/comm on the op run over the full register instead of its support.
+    #
+    # The two branches differ only in how commutation is decided, and each
+    # embeds at most once: on the wide path `complete_paulis` serves both the
+    # test and the conjugation, so testing never costs an extra embedding.
+    local pauli1, pauli2
+    if length(op1.qubits) * length(op2.qubits) > PAULI_WALK_MAX_WORK
+        (pauli1, pauli2) = complete_paulis(op1, op2)
+        comm(pauli1, pauli2) == 0x00 && return nothing
+    else
+        paulis_commute(op1, op2) && return nothing
+        (pauli1, pauli2) = complete_paulis(op1, op2)
     end
+    # complete_paulis already embedded both Paulis to this width
+    new_q = collect(1:length(pauli1))
     new_p = isa_variant(op1, CircuitOp.ExpHalfPiPauli) ? -pauli2 : 1im*pauli1*pauli2
     return (new_p, new_q)
 end
@@ -212,14 +284,14 @@ function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1,op2) begin
         (ExpEighPiPauli(),ExpEighPiPauli()) => begin
             (p1,p2) = complete_paulis(op1,op2)
-            qm = length(p1)
-            q = [x for x in 1:qm]
+            # The qubit list is only needed on the merge branch; building it up
+            # front pays for every non-matching pair, which is nearly all of them
             if p1.xz == p2.xz
                 if xor(p1.phase[1], p2.phase[1]) == 0x02
                     # exp(-i*pi/8*P) * exp(-i*pi/8*(-P)) = identity
                     return ()
                 elseif op1.pauli.phase == op2.pauli.phase
-                    return ExpQuatPiPauli(p1,q)
+                    return ExpQuatPiPauli(p1,collect(1:length(p1)))
                 else
                     return nothing
                 end
@@ -228,14 +300,13 @@ function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
         end
         (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
             (p1,p2) = complete_paulis(op1,op2)
-            qm = length(p1)
-            q = [x for x in 1:qm]
+            # See above: the qubit list is only needed on the merge branch
             if p1.xz == p2.xz
                 if xor(p1.phase[1], p2.phase[1]) == 0x02
                     # exp(-i*pi/4*P) * exp(-i*pi/4*(-P)) = identity
                     return ()
                 elseif op1.pauli.phase == op2.pauli.phase
-                    return ExpHalfPiPauli(p1,q)
+                    return ExpHalfPiPauli(p1,collect(1:length(p1)))
                 else
                     return nothing
                 end

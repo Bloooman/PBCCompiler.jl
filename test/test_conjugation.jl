@@ -29,8 +29,12 @@ end
     op2=CircuitOp.ExpEighPiPauli(P"Z", [2])
     M_Z=CircuitOp.Measurement(P"Z", 1, [2])
 
-    conjugated_noncliff=CircuitOp.ExpEighPiPauli(P"_Z", [1, 2])
-    conjugated_measurement=CircuitOp.Measurement(P"_Z", 1, [1, 2])
+    # Disjoint supports commute, so op2 crosses op1 untouched. It is returned
+    # as-is rather than re-embedded over the union of both supports: the
+    # identity padding carries no information and widening it would make every
+    # later commutation check on the op run over the full register.
+    conjugated_noncliff=CircuitOp.ExpEighPiPauli(P"Z", [2])
+    conjugated_measurement=CircuitOp.Measurement(P"Z", 1, [2])
 
     t_1=conjugate_noncliff(op1,op2)
     @test t_1 == (conjugated_noncliff, op1)

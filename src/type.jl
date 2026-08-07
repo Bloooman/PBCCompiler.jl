@@ -99,9 +99,13 @@ using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 abstract type AbstractRuntime end
 
 """Runtime that simulates magic-state measurements with QuantumClifford's `GeneralizedStabilizer`."""
-struct SimRuntime <: AbstractRuntime
+struct SimRuntime{Q} <: AbstractRuntime
+    # Q is the concrete GeneralizedStabilizer instantiation (or Nothing before a
+    # magic register exists). Declaring the field as the unparameterized
+    # `GeneralizedStabilizer` instead would make it non-concrete, which is
+    # enough on its own to infer `run` and `do_quantum_step` as `Any`.
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
-    quantum_memory::Union{GeneralizedStabilizer, Nothing}
+    quantum_memory::Q
     """
     Magic qubits whose deferred T gate has already been applied. The magic
     register starts as the stabilizer state |+>^n and each T gate is applied
@@ -113,7 +117,7 @@ struct SimRuntime <: AbstractRuntime
     invsparsity_history::Vector{Int}
 end
 
-SimRuntime() = SimRuntime(nothing, nothing,[])
+SimRuntime() = SimRuntime(nothing, nothing, Int[])
 
 """
 Runtime that simulates the full register — data qubits and magic qubits together —
@@ -125,9 +129,10 @@ rotations into the circuit, this runtime performs an actual quantum measurement
 for every non-deterministic outcome. It therefore never produces a
 `ClassicalRandomRes`.
 """
-struct StabilizerRuntime <: AbstractRuntime
+struct StabilizerRuntime{Q} <: AbstractRuntime
+    # See `SimRuntime` on why the memory type is a parameter
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
-    quantum_memory::Union{GeneralizedStabilizer, Nothing}
+    quantum_memory::Q
     """
     Magic qubits whose deferred T gate has already been applied. The magic
     register starts as the stabilizer state |+>^n and each T gate is applied
@@ -139,7 +144,7 @@ struct StabilizerRuntime <: AbstractRuntime
     invsparsity_history::Vector{Int}
 end
 
-StabilizerRuntime() = StabilizerRuntime(nothing, nothing,[])
+StabilizerRuntime() = StabilizerRuntime(nothing, nothing, Int[])
 
 """Runtime that replaces quantum measurements with classical coin flips of a fixed bias."""
 struct DummyRuntime <: AbstractRuntime
@@ -158,7 +163,13 @@ end
 TraversalRuntime() = TraversalRuntime(1)
 ##
 """Struct that contains information describing current compiler state"""
-Base.@kwdef struct CompilerState{R<:AbstractRuntime}
+Base.@kwdef struct CompilerState{R<:AbstractRuntime, T<:MixedDestabilizer}
+    # R comes first so existing `CompilerState{<:SomeRuntime}` dispatch keeps
+    # working. T is a parameter for the same reason as SimRuntime's Q: an
+    # unparameterized `MixedDestabilizer` field is not concrete, which makes
+    # `stabilizerview(state.stabilizer_group)` non-inferrable and turns the
+    # per-row commutation scan in `get_measurement_result` into one dynamic
+    # dispatch per stabilizer row per measurement.
     """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
     measurement_results::Vector{MeasurementResult.Type}
     """
@@ -167,7 +178,7 @@ Base.@kwdef struct CompilerState{R<:AbstractRuntime}
     Its rank is below n before compilation is finished; the destabilizer half
     makes measurement projections cheap (no re-canonicalization per measurement)
     """
-    stabilizer_group::MixedDestabilizer
+    stabilizer_group::T
     """Result of Measurement(..., bit, ...) is stored in classical_register[bit]"""
     classical_register::Vector{Union{Nothing,Bool}}
     """Contain current circuit object"""
@@ -178,15 +189,45 @@ Base.@kwdef struct CompilerState{R<:AbstractRuntime}
     runtime::R
 end
 
+"""
+    copy(rt::AbstractRuntime) -> AbstractRuntime
+
+Copy a runtime deeply enough that measurements on the copy cannot be observed
+through the original.
+
+`DummyRuntime` and `TraversalRuntime` hold only a probability, so they are
+returned as-is. `SimRuntime` and `StabilizerRuntime` are immutable structs but
+their *contents* are not: `quantum_memory` is projected in place, `activated` is
+set element-wise, and `invsparsity_history` is appended to. Sharing any of those
+between two states makes the second one skip its deferred T gate and read an
+already-collapsed magic qubit — a silently wrong outcome with no error.
+"""
+Base.copy(rt::AbstractRuntime) = rt
+
+function Base.copy(rt::SimRuntime)
+    SimRuntime(
+        rt.quantum_memory === nothing ? nothing : copy(rt.quantum_memory),
+        rt.activated === nothing ? nothing : copy(rt.activated),
+        copy(rt.invsparsity_history),
+    )
+end
+
+function Base.copy(rt::StabilizerRuntime)
+    StabilizerRuntime(
+        rt.quantum_memory === nothing ? nothing : copy(rt.quantum_memory),
+        rt.activated === nothing ? nothing : copy(rt.activated),
+        copy(rt.invsparsity_history),
+    )
+end
+
 function Base.copy(s::CompilerState)
-    # runtime is aliased: all runtimes are immutable structs updated via @reset
     CompilerState(
         copy(s.measurement_results),
         copy(s.stabilizer_group),
         copy(s.classical_register),
         copy(s.circuit),
         s.instruction_pointer,
-        s.runtime
+        copy(s.runtime)
     )
 end
 ##

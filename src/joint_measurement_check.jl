@@ -54,9 +54,20 @@ function create_magic_state(num_magic::Int)
     return GeneralizedStabilizer(create_hadamard_basis_state(num_magic))
 end
 
+const EmbeddedPcT = typeof(UnitaryPauliChannel(map(p -> embed(1, 1, p), pcT.paulis), pcT.weights))
+
+# One entry per (register width, magic qubit). The channel depends only on those
+# two numbers, so rebuilding it on every T activation -- and on every shot of a
+# sampling run -- was pure repeat work. Guarded by a lock: the cache outlives any
+# single `run`, and nothing else stops two threads from sampling concurrently.
+const EMBEDDED_PCT_CACHE = Dict{Tuple{Int,Int}, EmbeddedPcT}()
+const EMBEDDED_PCT_LOCK = ReentrantLock()
+
 """Embed the single-qubit `pcT` channel on qubit `i` of an `n`-qubit register."""
 function embedded_pcT(n::Int, i::Int)
-    UnitaryPauliChannel(map(p -> embed(n, i, p), pcT.paulis), pcT.weights)
+    @lock EMBEDDED_PCT_LOCK get!(EMBEDDED_PCT_CACHE, (n, i)) do
+        UnitaryPauliChannel(map(p -> embed(n, i, p), pcT.paulis), pcT.weights)
+    end
 end
 
 """
@@ -141,7 +152,7 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
     end
 end
 
-function get_measurement_result(state::CompilerState{StabilizerRuntime}, op::CircuitOp.Type)
+function get_measurement_result(state::CompilerState{<:StabilizerRuntime}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
     md = state.stabilizer_group
@@ -302,31 +313,28 @@ function resolve_conditionals(state::CompilerState)
     # Keep resolving until a full scan finds no determined BitConditional.
     # Indices go stale after each splice!/deleteat! (and preprocess_circuit can
     # reorder the circuit), so re-scan from scratch after every resolution.
-    resolved = true
-    while resolved
-        resolved = false
-        for i in find_variant_indices(circuit, BitConditional)
-            operation=circuit[i]
-            control_bit=creg[operation.bit]
-            if control_bit !== nothing
-                inner = operation.op
-                @debug "Resolving BitConditional at $i" control_bit _group=:api
-                if control_bit
-                    splice!(circuit, i, [inner])
-                else
-                    deleteat!(circuit, i)
-                end
-                # A resolved Clifford rotation (the only kind gadgetize emits)
-                # just needs commuting past the remaining measurements; other
-                # inner ops fall back to the full pipeline
-                if !control_bit || isa_variant(inner, ExpHalfPiPauli) || isa_variant(inner, ExpQuatPiPauli)
-                    absorb_cliffords!(circuit)
-                else
-                    preprocess_circuit(circuit)
-                end
-                resolved = true
-                break
-            end
+    while true
+        # Find the first BitConditional whose control bit is known. The previous
+        # form built the full index vector of every BitConditional and then broke
+        # out at the first resolvable one, so all but one entry was discarded
+        i = findfirst(op -> isa_variant(op, BitConditional) && creg[op.bit] !== nothing, circuit)
+        i === nothing && return
+        operation = circuit[i]
+        control_bit = creg[operation.bit]
+        inner = operation.op
+        @debug "Resolving BitConditional at $i" control_bit _group=:api
+        if control_bit
+            circuit[i] = inner
+        else
+            deleteat!(circuit, i)
+        end
+        # A resolved Clifford rotation (the only kind gadgetize emits)
+        # just needs commuting past the remaining measurements; other
+        # inner ops fall back to the full pipeline
+        if !control_bit || isa_variant(inner, ExpHalfPiPauli) || isa_variant(inner, ExpQuatPiPauli)
+            absorb_cliffords!(circuit)
+        else
+            preprocess_circuit(circuit)
         end
     end
 end

@@ -155,7 +155,9 @@ pipeline and are rejected up front by [`validate_input`](@ref).
 function make_stabilizer_list(s::Stabilizer, circuit::Circuit)
     paulilen=get_circuit_width(circuit)
     num_pauli_qubits = length(s)
-    new_s=PauliOperator[]
+    # `P` (the concrete PauliOperator instantiation) rather than the abstract
+    # `PauliOperator`, so the resulting Stabilizer has a concrete tableau type
+    new_s=P[]
     pauli_qubits = collect(1:num_pauli_qubits)
     for i in s
         new_i = embed(paulilen, pauli_qubits, i)
@@ -192,17 +194,18 @@ function remove_pauliconditional(circuit::Circuit)
 end
 
 """
-    group_nonclifford(circuit::Circuit)->nothing
+    group_nonclifford(circuit::Circuit)->Circuit
 
 Commute every Clifford rotation left of a non-Clifford rotation past it, so the
 non-Clifford rotations end up grouped at the front of the circuit.
 """
 function group_nonclifford(circuit::Circuit)
-    if find_variant_indices(circuit,ExpEighPiPauli) != []
-        for index in find_variant_indices(circuit,ExpEighPiPauli)
-            circuit=traversal(circuit, conjugate_noncliff, :left, 1, index-1)
-        end
+    # One scan, not two: the guard used to build the whole index vector just to
+    # compare it against an empty literal, then the loop rebuilt it
+    for index in find_variant_indices(circuit, ExpEighPiPauli)
+        traversal(circuit, conjugate_noncliff, :left, 1, index-1)
     end
+    return circuit
 end
 
 """
@@ -288,7 +291,9 @@ Removes all gates after last CircuitOp.Measurement. No traversal+kernel structur
 operates directly on the underlying gate sequence.
 """
 function remove_post_measurement(circuit::Circuit)
-    indices=find_variant_indices(circuit,Measurement)
-    isempty(indices) && return circuit
-    resize!(circuit, maximum(indices))
+    # Only the last measurement's position is needed; building the full index
+    # vector to take its maximum allocates for nothing
+    last_measurement = findlast(op -> isa_variant(op, Measurement), circuit)
+    last_measurement === nothing && return circuit
+    resize!(circuit, last_measurement)
 end

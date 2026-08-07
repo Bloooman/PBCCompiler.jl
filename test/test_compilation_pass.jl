@@ -39,7 +39,9 @@ end
     @test circuit[2] == Measurement(P"X", 4, [3])
     @test circuit[3] == BitConditional((ExpQuatPiPauli(P"XZ", [1, 2])), 3)
     @test circuit[4] == BitConditional((ExpHalfPiPauli(P"XZ", [1, 2])), 4)
-    @test circuit[5] == Measurement(P"X_", 1, [1, 2])
+    # No identity padding: this measurement commuted past every rotation it
+    # crossed, so it keeps its own support instead of being widened to [1, 2]
+    @test circuit[5] == Measurement(P"X", 1, [1])
     @test circuit[6] == Measurement(P"XZ", 2, [1, 2])
 end
 

@@ -1,12 +1,14 @@
-using Random: randstring
+using Random: randstring, AbstractRNG, default_rng
 using StatsBase: sample
 using QuantumClifford: random_pauli
 ##
 """
-    random_test_circuit(num_ops::Int, num_qubits::Int) -> Circuit
+    random_test_circuit(num_ops::Int, num_qubits::Int; rng=Random.default_rng()) -> Circuit
 
 Generate a random circuit with `num_ops` gate operations followed by one
 measurement per qubit.
+
+Pass `rng` to make the circuit reproducible.
 
 Every operation acts on all qubits (`qubits = collect(1:num_qubits)`).
 All Pauli operators have length `num_qubits` and are guaranteed to be
@@ -17,7 +19,7 @@ qubits 1..k are the control registers and qubits k+1..num_qubits are the
 target registers. Requires `num_qubits >= 2` to generate `PauliConditional`
 ops; if `num_qubits == 1` only the Exp* op types are used.
 """
-function random_test_circuit(num_ops::Int, num_qubits::Int)::Circuit
+function random_test_circuit(num_ops::Int, num_qubits::Int; rng::AbstractRNG=default_rng())::Circuit
     qubits = collect(1:num_qubits)
 
     # Return a random non-identity PauliOperator of length n with real phase
@@ -25,9 +27,9 @@ function random_test_circuit(num_ops::Int, num_qubits::Int)::Circuit
     # validate_CircuitOp, so they must never be generated here.
     function nonid_pauli(n; nophase=true)
         while true
-            p = random_pauli(n; nophase=true)
+            p = random_pauli(rng, n; nophase=true)
             if !iszero(p.xz)
-                return nophase ? p : (rand(Bool) ? p : -p)
+                return nophase ? p : (rand(rng, Bool) ? p : -p)
             end
         end
     end
@@ -36,7 +38,7 @@ function random_test_circuit(num_ops::Int, num_qubits::Int)::Circuit
 
     for _ in 1:num_ops
         # When num_qubits == 1 there is no room to split for PauliConditional.
-        op_type = (num_qubits >= 2) ? rand(1:4) : rand(1:3)
+        op_type = (num_qubits >= 2) ? rand(rng, 1:4) : rand(rng, 1:3)
         p = nonid_pauli(num_qubits; nophase=false)
         if op_type == 1
             push!(ops, CircuitOp.ExpHalfPiPauli(p, qubits))
@@ -46,7 +48,7 @@ function random_test_circuit(num_ops::Int, num_qubits::Int)::Circuit
             push!(ops, CircuitOp.ExpEighPiPauli(p, qubits))
         else
             # Split 1:num_qubits at a random index so both parts are non-empty.
-            split = rand(1:num_qubits - 1)
+            split = rand(rng, 1:num_qubits - 1)
             control_q = qubits[1:split]
             target_q  = qubits[split+1:end]
             control_p = nonid_pauli(length(control_q); nophase=true)

@@ -17,9 +17,11 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
     len = 2^num_bits
     distribution = zeros(Int, len)
     data = zeros(Int, num_shots)
+    # Compilation is shot-independent -- only the measurement outcomes differ --
+    # so it is done once and each shot runs off a copy of the compiled state
+    compiled = build_compilerstate(input_circuit, rt, input_state)
     for i in 1:num_shots
-        circuit = copy(input_circuit)
-        result_i=run(circuit, rt, input_state)
+        result_i=execute!(copy(compiled))
         register=result_i.classical_register
         final_measurement_results=register[1:num_bits]
         any(isnothing, final_measurement_results) &&
@@ -117,9 +119,10 @@ Edges absent from a shot's graph contribute weight 0 to the computation.
 """
 function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stabilizer, Nothing}=nothing; quantum_only::Bool=false, num_shots::Int=1000) where R<:AbstractRuntime
     graphs =  Vector{SimpleWeightedGraph}(undef, num_shots)
+    # See `get_distribution`: compile once, run each shot off a copy
+    compiled = build_compilerstate(input_circuit, rt, input_state)
     for i in 1:num_shots
-        circuit = copy(input_circuit)
-        state_i=run(circuit, rt, input_state)
+        state_i=execute!(copy(compiled))
         graphs[i]=get_graph(to_result(state_i), quantum_only)
     end
     n = nv(first(graphs))

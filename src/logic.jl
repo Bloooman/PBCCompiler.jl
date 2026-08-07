@@ -80,6 +80,10 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
     @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
+    # Fresh vector, not `empty!`: callers reuse one runtime across shots, and
+    # appending into the caller's own vector would concatenate every shot's
+    # telemetry into one series
+    @reset rt.invsparsity_history = Int[]
     return rt
 end
 
@@ -94,6 +98,8 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
     @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
+    # See the SimRuntime method: fresh vector so shots do not concatenate
+    @reset rt.invsparsity_history = Int[]
     return rt
 end
 
@@ -148,7 +154,7 @@ function to_result(state::CompilerState)
     CompilationResult(state.measurement_results, qpu_load, copy(stabilizerview(state.stabilizer_group)), length(qpu_load))
 end
 
-function to_result(state::CompilerState{StabilizerRuntime})
+function to_result(state::CompilerState{<:StabilizerRuntime})
     num_qubits = nqubits(state.stabilizer_group)
     quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
     num_input_qubits = num_qubits - length(state.runtime.activated)
@@ -195,7 +201,26 @@ This function is not exported because it shadows `Base.run`; call it as
 - `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
-    state = build_compilerstate(input_circuit, rt, input_state)
+    execute!(build_compilerstate(input_circuit, rt, input_state))
+end
+
+"""
+    execute!(state::CompilerState) -> CompilerState
+
+Perform every remaining measurement of an already-compiled `CompilerState` and
+return the final state.
+
+`state` is consumed: its tableau, circuit and registers are updated in place.
+To run several shots off one compilation, pass a `copy` of the compiled state
+on each shot.
+
+# Examples
+```julia
+compiled = build_compilerstate(circuit, SimRuntime())
+shots = [execute!(copy(compiled)) for _ in 1:100]
+```
+"""
+function execute!(state::CompilerState)
     while !isempty(state.circuit)
         resolve_conditionals(state)
         # Stop once every measurement has been performed; bounding by both the
