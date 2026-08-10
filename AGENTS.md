@@ -54,7 +54,12 @@ The `preprocess_circuit` function transforms circuits through stages:
   by splicing compensating rotations into the circuit
 - `StabilizerRuntime` - Simulates the full register (data + magic) together, so
   it projects for every non-deterministic outcome and never yields a
-  `ClassicalRandomRes`
+  `ClassicalRandomRes`. **This is intended design — do not "fix" it.** Every
+  non-deterministic outcome becomes a `QuantumRes`, including ones that are
+  random only because of the data register, so `QPU_workload` runs far larger
+  than `SimRuntime`'s (~5x on random small circuits) and the two are not
+  comparable. Outcomes themselves agree between the runtimes; only the
+  classification differs
 - `DummyRuntime` / `TraversalRuntime` - Replace quantum measurements with
   classical coin flips of a fixed bias
 - `CompilerState{R,T}` - Tracks measurement results, tableau, classical

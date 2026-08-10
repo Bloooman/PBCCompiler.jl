@@ -127,7 +127,18 @@ Unlike [`SimRuntime`](@ref), which simulates only the magic register and resolve
 outcomes that anticommute with the stabilizer group by splicing compensating
 rotations into the circuit, this runtime performs an actual quantum measurement
 for every non-deterministic outcome. It therefore never produces a
-`ClassicalRandomRes`.
+`ClassicalRandomRes` — every non-deterministic outcome is recorded as a
+`QuantumRes`.
+
+That is the intended design, not a defect. The consequence is that
+`QuantumRes` here means "not determined by the stabilizer group", which is a
+broader class than `SimRuntime`'s "needs the magic register": a measurement that
+is random purely because of the data qubits is a `QuantumRes` under this runtime
+and a `ClassicalRandomRes` under `SimRuntime`. Expect a substantially larger
+`QPU_workload` as a result (roughly 5x on random small circuits). Measurement
+*outcomes* are unaffected and agree with `SimRuntime`; only the classification
+and the metrics derived from it differ, so do not compare QPU-workload figures
+across the two runtimes.
 """
 struct StabilizerRuntime{Q} <: AbstractRuntime
     # See `SimRuntime` on why the memory type is a parameter

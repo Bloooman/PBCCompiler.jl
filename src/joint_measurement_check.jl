@@ -238,20 +238,19 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
 end
 
 function quantum_measurement(rt::StabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
-    num_input_qubits = num_qubits - length(rt.activated)
+    # Guard first: reading `rt.activated` before this made the error unreachable
     quantum_state = rt.quantum_memory
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
     end
+    # A gadget-free circuit leaves no magic block, so the whole register is data
+    # and the activation loop below is a no-op
+    num_input_qubits = num_qubits - num_gadget_qubits(rt)
     real_p=embed(num_qubits, op.qubits, op.pauli)
     # Deferred T gates: activate every magic qubit this measurement touches whose
-    # T has not been applied yet (see `create_magic_state`). Select those qubits
-    # by value: `op.qubits` is the operation's support, so slicing it at the
-    # register-partition offset only lands on the magic qubits when the support
-    # happens to be the contiguous run 1:num_qubits — which is the case after a
-    # rotation has been conjugated to full width, but not for one that reached
-    # `gadgetize` unconjugated. There the slice comes out empty and the T is
-    # silently skipped.
+    # T has not been applied yet (see `create_magic_state`). Magic qubits are
+    # selected by value from `op.qubits` (the operation's support), so this is
+    # correct regardless of where in the register they land
     for k in op.qubits
         k > num_input_qubits || continue
         (x, z) = real_p[k]

@@ -390,4 +390,38 @@ end
     @test data == [0, 0, 0]
 end
 
+@testset "StabilizerRuntime on circuits that compile to no gadgets" begin
+    # `activated` used to be `nothing` whenever the preprocessed circuit added no
+    # magic qubits, and both `quantum_measurement` and `to_result` took its
+    # `length` unconditionally -- MethodError: length(::Nothing). It hit roughly a
+    # third of random 4-qubit circuits, not just hand-written Clifford ones.
+    clifford_only() = Circuit([ExpQuatPiPauli(P"X", [1]), Measurement(P"Z", 1, [1])])
+    # Cancelling rotations leave an empty circuit, which never runs build_rt_data
+    cancelling() = Circuit([ExpEighPiPauli(P"Z", [1]), ExpEighPiPauli(P"-Z", [1])])
+
+    for rt in (SimRuntime, StabilizerRuntime)
+        for mk in (clifford_only, cancelling, Circuit)
+            state = run(mk(), rt())
+            @test state isa CompilerState
+            @test to_result(state) isa CompilationResult
+        end
+    end
+
+    # The gadget-free run must still produce a usable outcome, not just avoid throwing
+    state = run(clifford_only(), StabilizerRuntime())
+    @test state.classical_register[1] isa Bool
+    @test isempty(state.runtime.activated)
+
+    # A circuit that *does* gadgetize still sizes its magic block correctly
+    with_gadget = Circuit([ExpEighPiPauli(P"Z", [1]), Measurement(P"Z", 1, [1])])
+    @test length(run(with_gadget, StabilizerRuntime()).runtime.activated) == 1
+end
+
+@testset "quantum_measurement without magic state reports the cause" begin
+    # The ArgumentError guard sat below a `length(rt.activated)` that threw first,
+    # making it unreachable
+    op = Measurement(P"X", 1, [1])
+    @test_throws ArgumentError quantum_measurement(StabilizerRuntime(), op, 1)
+end
+
 end

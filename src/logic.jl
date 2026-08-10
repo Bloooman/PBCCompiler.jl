@@ -97,7 +97,12 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     quantum_memory = GeneralizedStabilizer(state)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
-    @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
+    # Unlike SimRuntime -- which allocates no magic register at all when there
+    # are no gadgets, so `nothing` is the honest value there -- this runtime
+    # always holds the full register. An empty BitVector keeps
+    # `num_input_qubits = num_qubits - length(activated)` correct on gadget-free
+    # circuits instead of throwing `MethodError: length(::Nothing)`
+    @reset rt.activated = falses(num_gadgets)
     # See the SimRuntime method: fresh vector so shots do not concatenate
     @reset rt.invsparsity_history = Int[]
     return rt
@@ -154,10 +159,23 @@ function to_result(state::CompilerState)
     CompilationResult(state.measurement_results, qpu_load, copy(stabilizerview(state.stabilizer_group)), length(qpu_load))
 end
 
+"""
+Number of magic-state (gadget) qubits a `StabilizerRuntime` holds -- the trailing
+block of the register, above the data qubits.
+
+`activated` is `nothing` on a state from [`_empty_state`](@ref), which never runs
+`build_rt_data`; a circuit with nothing to execute has no gadgets, hence 0.
+
+`SimRuntime` does not need this: the generic `to_result` derives its magic block
+from the `QuantumRes` count rather than from `activated`.
+"""
+num_gadget_qubits(rt::StabilizerRuntime) =
+    rt.activated === nothing ? 0 : length(rt.activated)
+
 function to_result(state::CompilerState{<:StabilizerRuntime})
     num_qubits = nqubits(state.stabilizer_group)
     quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
-    num_input_qubits = num_qubits - length(state.runtime.activated)
+    num_input_qubits = num_qubits - num_gadget_qubits(state.runtime)
     qpu_load = Vector{MeasurementResult.Type}()
 
     for mr in quantum
