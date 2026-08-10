@@ -158,22 +158,10 @@ function to_result(state::CompilerState{<:StabilizerRuntime})
     num_qubits = nqubits(state.stabilizer_group)
     quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
     num_input_qubits = num_qubits - length(state.runtime.activated)
-    magicqubits = num_input_qubits + 1 : num_qubits
-
-    excluded_local = Set{Int}()
     qpu_load = Vector{MeasurementResult.Type}()
 
     for mr in quantum
-        magic_p = mr.pauli[magicqubits]
-        for i in excluded_local
-            magic_p[i] = (false, false)
-        end
-        non_id = findall(i -> let (x, z) = magic_p[i]; x || z end, 1:length(magic_p))
-        if length(non_id) == 1
-            push!(excluded_local, non_id[1])
-        else
-            push!(qpu_load, QuantumRes(magic_p, mr.result))
-        end
+        push!(qpu_load, QuantumRes(mr.pauli, mr.result))
     end
 
     keep_qubits = collect(1:num_input_qubits)
