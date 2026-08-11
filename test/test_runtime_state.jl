@@ -2,7 +2,7 @@
 ##
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpEighPiPauli, SimRuntime,
-    build_compilerstate, do_quantum_step
+    DummyRuntime, DummyStabilizerRuntime, build_compilerstate, do_quantum_step
 using QuantumClifford: @P_str
 
 # One pi/8 rotation -> one magic-state gadget, so the runtime carries a
@@ -36,6 +36,34 @@ gadget_circuit() = Circuit(CircuitOp.Type[
     @test !any(state.runtime.activated)
     @test isempty(state.runtime.invsparsity_history)
     @test length(state.runtime.quantum_memory.destabweights) == original_chi
+end
+
+@testset "copy does not alias activated for DummyRuntime" begin
+    state = build_compilerstate(gadget_circuit(), DummyRuntime(), nothing)
+    @test !any(state.runtime.activated)
+
+    other = copy(state)
+    @test other.runtime !== state.runtime
+    @test other.runtime.activated !== state.runtime.activated
+
+    other = do_quantum_step(other)
+    @test any(other.runtime.activated)
+    # Must not be visible through the original -- same aliasing bug class as
+    # SimRuntime's magic register, now for the dummy's activation bits.
+    @test !any(state.runtime.activated)
+end
+
+@testset "copy does not alias activated for DummyStabilizerRuntime" begin
+    state = build_compilerstate(gadget_circuit(), DummyStabilizerRuntime(), nothing)
+    @test !any(state.runtime.activated)
+
+    other = copy(state)
+    @test other.runtime !== state.runtime
+    @test other.runtime.activated !== state.runtime.activated
+
+    other = do_quantum_step(other)
+    @test any(other.runtime.activated)
+    @test !any(state.runtime.activated)
 end
 
 @testset "copy leaves the tableau and circuit independent" begin

@@ -205,6 +205,25 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
 end
 ##
 """
+Mark each index in `candidates` as activated in `activated` (mutating it) if
+`real_p[k+offset]` is non-identity there and it hasn't been touched yet.
+Return the newly-activated indices, in `activated`'s own numbering, so
+callers that hold a real register can `apply!` a T gate per index and
+callers that don't (the dummy runtimes) can ignore the return.
+"""
+function _mark_activated!(activated::BitVector, real_p, offset::Int, candidates)
+    newly = Int[]
+    for k in candidates
+        (x, z) = real_p[k+offset]
+        if (x || z) && !activated[k]
+            activated[k] = true
+            push!(newly, k)
+        end
+    end
+    return newly
+end
+
+"""
     quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
 Perform quantum measurement simulation on given state using QuantumClifford.jl backend
 """
@@ -223,12 +242,8 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     # activation bit stays set after the qubit collapses back to a stabilizer
     # state — reapplying T there would be wrong
     num_magic = length(real_p)
-    for k in 1:num_magic
-        (x, z) = real_p[k]
-        if (x || z) && !rt.activated[k]
-            apply!(quantum_state, embedded_pcT(num_magic, k))
-            rt.activated[k] = true
-        end
+    for k in _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
+        apply!(quantum_state, embedded_pcT(num_magic, k))
     end
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
@@ -251,13 +266,9 @@ function quantum_measurement(rt::StabilizerRuntime, op::CircuitOp.Type, num_qubi
     # T has not been applied yet (see `create_magic_state`). Magic qubits are
     # selected by value from `op.qubits` (the operation's support), so this is
     # correct regardless of where in the register they land
-    for k in op.qubits
-        k > num_input_qubits || continue
-        (x, z) = real_p[k]
-        if (x || z) && !rt.activated[k-num_input_qubits]
-            apply!(quantum_state, embedded_pcT(num_qubits, k))
-            rt.activated[k-num_input_qubits] = true
-        end
+    candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
+    for k in _mark_activated!(rt.activated, real_p, num_input_qubits, candidates)
+        apply!(quantum_state, embedded_pcT(num_qubits, num_input_qubits+k))
     end
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
@@ -297,10 +308,31 @@ end
 data_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
-    quantum_measurement(state::Union{DummyRuntime,DummyStabilizerRuntime}, op::CircuitOp.Type, num_qubits::Int) -> Tuple{<:AbstractRuntime, Bool}
+    quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
 Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`.
 """
-function quantum_measurement(rt::Union{DummyRuntime,DummyStabilizerRuntime}, op::CircuitOp.Type, num_qubits::Int)
+function quantum_measurement(rt::DummyRuntime, op::CircuitOp.Type, num_qubits::Int)
+    if rt.activated !== nothing
+        num_magic = length(rt.activated)
+        magicqubits = num_qubits-num_magic+1:num_qubits
+        real_p = embed(num_qubits, op.qubits, op.pauli)[magicqubits]
+        _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
+    end
+    result = rand() < rt.p1_outcome_probs
+    return (rt, result)
+end
+
+"""
+    quantum_measurement(state::DummyStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyStabilizerRuntime, Bool}
+Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
+"""
+function quantum_measurement(rt::DummyStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
+    if rt.activated !== nothing
+        num_input_qubits = num_qubits - length(rt.activated)
+        real_p = embed(num_qubits, op.qubits, op.pauli)
+        candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
+        _mark_activated!(rt.activated, real_p, num_input_qubits, candidates)
+    end
     result = rand() < rt.p1_outcome_probs
     return (rt, result)
 end

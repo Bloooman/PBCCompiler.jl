@@ -161,27 +161,37 @@ end
 
 StabilizerRuntime() = StabilizerRuntime(nothing, nothing, Int[])
 
-"""Runtime that replaces quantum measurements with classical coin flips of a fixed bias."""
+"""Runtime that replaces quantum measurements with classical coin flips of a
+fixed bias, while still tracking which magic qubits a measurement touched
+(mirrors `SimRuntime.activated`) for parity/diagnostics."""
 struct DummyRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
+    """Magic qubits touched by a measurement so far, mirroring
+    `SimRuntime.activated`; `nothing` before `build_rt_data` runs (or when the
+    circuit has no gadgets)."""
+    activated::Union{BitVector, Nothing}
 end
 
-DummyRuntime() = DummyRuntime(0.5)
+DummyRuntime() = DummyRuntime(0.5, nothing)
+DummyRuntime(p::Float64) = DummyRuntime(p, nothing)
 
 """Cheap stand-in for `StabilizerRuntime`: same control flow (no anticommuting
-coin-flip branch — every non-deterministic outcome reaches `quantum_measurement`),
-but replaces the actual quantum measurement with a classical coin flip of a fixed
-bias. Exists for tests that need `StabilizerRuntime`'s measurement classification
-shape without paying for `GeneralizedStabilizer` simulation.
-
-Like `DummyRuntime`, this is not physically faithful."""
+coin-flip branch), same `activated` bookkeeping of which magic qubits a
+measurement touched, but replaces the actual quantum measurement with a
+classical coin flip of a fixed bias instead of simulating the register.
+`to_result`/`QPU_workload` extraction work the same way they do for
+`StabilizerRuntime`; only the outcome bias is not physically faithful."""
 struct DummyStabilizerRuntime <: AbstractStabilizerRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
+    """Magic qubits touched by a measurement so far, mirroring
+    `StabilizerRuntime.activated`; `nothing` before `build_rt_data` runs."""
+    activated::Union{BitVector, Nothing}
 end
 
-DummyStabilizerRuntime() = DummyStabilizerRuntime(0.5)
+DummyStabilizerRuntime() = DummyStabilizerRuntime(0.5, nothing)
+DummyStabilizerRuntime(p::Float64) = DummyStabilizerRuntime(p, nothing)
 
 """Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime
@@ -224,12 +234,14 @@ end
 Copy a runtime deeply enough that measurements on the copy cannot be observed
 through the original.
 
-`DummyRuntime` and `TraversalRuntime` hold only a probability, so they are
-returned as-is. `SimRuntime` and `StabilizerRuntime` are immutable structs but
-their *contents* are not: `quantum_memory` is projected in place, `activated` is
-set element-wise, and `invsparsity_history` is appended to. Sharing any of those
-between two states makes the second one skip its deferred T gate and read an
-already-collapsed magic qubit — a silently wrong outcome with no error.
+`TraversalRuntime` holds only a probability, so it is returned as-is.
+`SimRuntime`, `StabilizerRuntime`, `DummyRuntime`, and `DummyStabilizerRuntime`
+are immutable structs but their *contents* are not: `activated` is set
+element-wise (and, for `SimRuntime`/`StabilizerRuntime`, `quantum_memory` is
+projected in place and `invsparsity_history` is appended to). Sharing any of
+those between two states makes the second one skip its deferred T gate (or,
+for the dummies, misreport which magic qubits were touched) — a silently
+wrong outcome with no error.
 """
 Base.copy(rt::AbstractRuntime) = rt
 
@@ -247,6 +259,14 @@ function Base.copy(rt::StabilizerRuntime)
         rt.activated === nothing ? nothing : copy(rt.activated),
         copy(rt.invsparsity_history),
     )
+end
+
+function Base.copy(rt::DummyRuntime)
+    DummyRuntime(rt.p1_outcome_probs, rt.activated === nothing ? nothing : copy(rt.activated))
+end
+
+function Base.copy(rt::DummyStabilizerRuntime)
+    DummyStabilizerRuntime(rt.p1_outcome_probs, rt.activated === nothing ? nothing : copy(rt.activated))
 end
 
 function Base.copy(s::CompilerState)

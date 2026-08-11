@@ -108,6 +108,19 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     return rt
 end
 
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyRuntime)
+    num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
+    @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
+    return rt
+end
+
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyStabilizerRuntime)
+    num_qubits = get_circuit_width(preprocessed)
+    num_gadgets = num_qubits - num_input_qubits
+    @reset rt.activated = falses(num_gadgets)
+    return rt
+end
+
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::R) where R<:AbstractRuntime
     return rt
 end
@@ -160,19 +173,19 @@ function to_result(state::CompilerState)
 end
 
 """
-Number of magic-state (gadget) qubits a `StabilizerRuntime` holds -- the trailing
-block of the register, above the data qubits.
+Number of magic-state (gadget) qubits a `StabilizerRuntime`/`DummyStabilizerRuntime`
+holds -- the trailing block of the register, above the data qubits.
 
 `activated` is `nothing` on a state from [`_empty_state`](@ref), which never runs
 `build_rt_data`; a circuit with nothing to execute has no gadgets, hence 0.
 
-`SimRuntime` does not need this: the generic `to_result` derives its magic block
-from the `QuantumRes` count rather than from `activated`.
+`SimRuntime`/`DummyRuntime` do not need this: the generic `to_result` derives
+its magic block from the `QuantumRes` count rather than from `activated`.
 """
-num_gadget_qubits(rt::StabilizerRuntime) =
+num_gadget_qubits(rt::AbstractStabilizerRuntime) =
     rt.activated === nothing ? 0 : length(rt.activated)
 
-function to_result(state::CompilerState{<:StabilizerRuntime})
+function to_result(state::CompilerState{<:AbstractStabilizerRuntime})
     num_qubits = nqubits(state.stabilizer_group)
     quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
     num_input_qubits = num_qubits - num_gadget_qubits(state.runtime)

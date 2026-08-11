@@ -5,8 +5,8 @@ using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQu
     ExpEighPiPauli, PauliConditional, BitConditional, traversal, preprocess_circuit,
     validate_CircuitOp, PauliQubitMismatchError, find_variant_indices, group_nonclifford,
     quantum_measurement, resolve_conditionals, get_distribution, get_graph,
-    weight_std_graph, to_result, run, CompilerState, CompilationResult, MeasurementResult,
-    SimRuntime, DummyRuntime, StabilizerRuntime
+    weight_std_graph, to_result, num_gadget_qubits, run, CompilerState, CompilationResult, MeasurementResult,
+    SimRuntime, DummyRuntime, StabilizerRuntime, DummyStabilizerRuntime
 using .MeasurementResult: ClassicalDetermRes
 using QuantumClifford: @P_str, @S_str, MixedDestabilizer, nqubits, Stabilizer
 using Moshi.Derive: @derive
@@ -399,7 +399,7 @@ end
     # Cancelling rotations leave an empty circuit, which never runs build_rt_data
     cancelling() = Circuit([ExpEighPiPauli(P"Z", [1]), ExpEighPiPauli(P"-Z", [1])])
 
-    for rt in (SimRuntime, StabilizerRuntime)
+    for rt in (SimRuntime, StabilizerRuntime, DummyStabilizerRuntime)
         for mk in (clifford_only, cancelling, Circuit)
             state = run(mk(), rt())
             @test state isa CompilerState
@@ -412,9 +412,15 @@ end
     @test state.classical_register[1] isa Bool
     @test isempty(state.runtime.activated)
 
+    dummy_state = run(clifford_only(), DummyStabilizerRuntime())
+    @test dummy_state.classical_register[1] isa Bool
+    @test isempty(dummy_state.runtime.activated)
+
     # A circuit that *does* gadgetize still sizes its magic block correctly
     with_gadget = Circuit([ExpEighPiPauli(P"Z", [1]), Measurement(P"Z", 1, [1])])
     @test length(run(with_gadget, StabilizerRuntime()).runtime.activated) == 1
+    @test length(run(with_gadget, DummyStabilizerRuntime()).runtime.activated) == 1
+    @test num_gadget_qubits(run(with_gadget, DummyStabilizerRuntime()).runtime) == 1
 end
 
 @testset "quantum_measurement without magic state reports the cause" begin
