@@ -70,12 +70,19 @@ function build_shared(preprocessed::Circuit, input_state::Stabilizer)
 end
 ##
 """
+Number of gadget (magic-state) qubits a preprocessed circuit needs: gadgetization
+appends its magic qubits above the input width, so the gadget count is the
+width difference.
+"""
+_gadget_count(preprocessed::Circuit, num_input_qubits::Int) = get_circuit_width(preprocessed) - num_input_qubits
+
+"""
 Build the runtime data from an already-preprocessed circuit. For `SimRuntime`,
 allocate one magic-state qubit per gadget; gadgetization appends its magic
 qubits above the input width, so the gadget count is the width difference.
 """
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::SimRuntime)
-    num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
+    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
@@ -89,7 +96,7 @@ end
 
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::StabilizerRuntime)
     num_qubits = get_circuit_width(preprocessed)
-    num_gadgets = num_qubits - num_input_qubits
+    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     input = make_stabilizer_list(input_state, preprocessed)
     generators = one(Stabilizer, num_qubits; basis=:X)
     state = Stabilizer(generators)
@@ -109,14 +116,13 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
 end
 
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyRuntime)
-    num_gadgets = get_circuit_width(preprocessed) - num_input_qubits
+    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
     return rt
 end
 
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyStabilizerRuntime)
-    num_qubits = get_circuit_width(preprocessed)
-    num_gadgets = num_qubits - num_input_qubits
+    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     @reset rt.activated = falses(num_gadgets)
     return rt
 end

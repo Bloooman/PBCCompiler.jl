@@ -245,28 +245,19 @@ wrong outcome with no error.
 """
 Base.copy(rt::AbstractRuntime) = rt
 
-function Base.copy(rt::SimRuntime)
-    SimRuntime(
-        rt.quantum_memory === nothing ? nothing : copy(rt.quantum_memory),
-        rt.activated === nothing ? nothing : copy(rt.activated),
-        copy(rt.invsparsity_history),
-    )
-end
+# `SimRuntime`/`StabilizerRuntime`/`DummyRuntime`/`DummyStabilizerRuntime` all
+# copy the same way -- copy every field, nil-guarded since `activated`/
+# `quantum_memory` can legitimately be `nothing` -- and differ only in their
+# field lists, so one reflection-driven method covers all four instead of
+# one hand-written copy per type.
+const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime}
 
-function Base.copy(rt::StabilizerRuntime)
-    StabilizerRuntime(
-        rt.quantum_memory === nothing ? nothing : copy(rt.quantum_memory),
-        rt.activated === nothing ? nothing : copy(rt.activated),
-        copy(rt.invsparsity_history),
-    )
-end
-
-function Base.copy(rt::DummyRuntime)
-    DummyRuntime(rt.p1_outcome_probs, rt.activated === nothing ? nothing : copy(rt.activated))
-end
-
-function Base.copy(rt::DummyStabilizerRuntime)
-    DummyStabilizerRuntime(rt.p1_outcome_probs, rt.activated === nothing ? nothing : copy(rt.activated))
+function Base.copy(rt::R) where R<:_RuntimeWithMutableFields
+    fields = ntuple(fieldcount(R)) do i
+        f = getfield(rt, i)
+        f === nothing ? nothing : copy(f)
+    end
+    return R(fields...)
 end
 
 function Base.copy(s::CompilerState)
@@ -307,6 +298,26 @@ _bool_str(::Nothing) = "nothing"
 _bool_str(b::Bool) = string(b)
 
 """
+Print one indented line per measurement result in `measurement_results`
+(`"undefined"` for unassigned slots), shared by the `CompilerState` and
+`CompilationResult` `show` methods.
+"""
+function _print_measurements(io::IO, measurement_results)
+    n = length(measurement_results)
+    println(io, "  Measurements ($n):")
+    for i in 1:n
+        if !isassigned(measurement_results, i)
+            println(io, "    [$i] undefined")
+            continue
+        end
+        m = measurement_results[i]
+        println(io, "    [$i] ", m.pauli,
+                    "  →  ", _bool_str(m.result),
+                    "  (", _result_type_str(variant_name(m)), ")")
+    end
+end
+
+"""
     show(io::IO, result::CompilerState)
 
 Pretty-print all debug-relevant fields of a `CompilerState`.
@@ -321,18 +332,7 @@ Nothing; writes to `io`.
 function Base.show(io::IO, result::CompilerState)
     println(io, "CompilerState [debug]")
     println(io, "  Instruction Pointer: ", result.instruction_pointer)
-    n = length(result.measurement_results)
-    println(io, "  Measurements ($n):")
-    for i in 1:n
-        if !isassigned(result.measurement_results, i)
-            println(io, "    [$i] undefined")
-            continue
-        end
-        m = result.measurement_results[i]
-        println(io, "    [$i] ", m.pauli,
-                    "  →  ", _bool_str(m.result),
-                    "  (", _result_type_str(variant_name(m)), ")")
-    end
+    _print_measurements(io, result.measurement_results)
     reg = join(map(_bool_str, result.classical_register), ", ")
     println(io, "  Classical Register: [", reg, "]")
     print(io, "  Stabilizer Group:\n")
@@ -353,18 +353,7 @@ Nothing; writes to `io`.
 """
 function Base.show(io::IO, r::CompilationResult)
     println(io, "Compilation Result")
-    n = length(r.measurement_results)
-    println(io, "  Measurements ($n):")
-    for i in 1:n
-        if !isassigned(r.measurement_results, i)
-            println(io, "    [$i] undefined")
-            continue
-        end
-        m = r.measurement_results[i]
-        println(io, "    [$i] ", m.pauli,
-                    "  →  ", _bool_str(m.result),
-                    "  (", _result_type_str(variant_name(m)), ")")
-    end
+    _print_measurements(io, r.measurement_results)
     nq = length(r.QPU_workload)
     println(io, "  QPU Workload ($nq):")
     for (j, m) in enumerate(r.QPU_workload)

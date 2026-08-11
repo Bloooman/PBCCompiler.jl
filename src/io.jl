@@ -59,14 +59,7 @@ maps to classical bit `q`.
 function parse_input(filepath::String)::Circuit
     content = read(filepath, String)
     dir     = dirname(abspath(filepath))
-
-    # gate_defs: includes first, then inline definitions (later wins)
-    gate_defs = Dict{String,GateDef}()
-    for m in eachmatch(r"include\s+\"([^\"]+)\"\s*;", content)
-        inc_path = joinpath(dir, m[1])
-        isfile(inc_path) && _load_gate_defs!(gate_defs, read(inc_path, String))
-    end
-    _load_gate_defs!(gate_defs, content)
+    gate_defs = _load_all_gate_defs(content, dir)
 
     circuit     = Circuit()
     # Registers are laid out consecutively in declaration order, so files with
@@ -83,14 +76,8 @@ function parse_input(filepath::String)::Circuit
         line = strip(replace(raw, r"\s*//.*$" => ""))
         isempty(line) && continue
 
-        if in_gate_def
-            contains(line, "}") && (in_gate_def = false)
-            continue
-        end
-        if startswith(line, "gate ")
-            in_gate_def = !contains(line, "}")
-            continue
-        end
+        (skip, in_gate_def) = _skip_gate_def_line(line, in_gate_def)
+        skip && continue
 
         any(startswith(line, p) for p in ("OPENQASM", "barrier", "include")) && continue
 
@@ -186,6 +173,39 @@ function _load_gate_defs!(defs::Dict{String,GateDef}, content::AbstractString)
         body   = filter(!isempty, strip.(split(m[4], ';')))
         defs[name] = GateDef(name, params, qubits, body)
     end
+end
+
+"""
+Load gate definitions from `content`'s own `gate` blocks plus every `.inc`
+file it `include`s (resolved relative to `dir`), includes first so inline
+definitions in `content` take precedence. Shared by `parse_input` and
+`parse_QuantumClifford`, which both need the same lookup table before walking
+the file line by line.
+"""
+function _load_all_gate_defs(content::AbstractString, dir::AbstractString)
+    gate_defs = Dict{String,GateDef}()
+    for m in eachmatch(r"include\s+\"([^\"]+)\"\s*;", content)
+        inc_path = joinpath(dir, m[1])
+        isfile(inc_path) && _load_gate_defs!(gate_defs, read(inc_path, String))
+    end
+    _load_gate_defs!(gate_defs, content)
+    return gate_defs
+end
+
+"""
+Advance the `gate name(...) qubits { ... }` block-skip state by one line.
+Returns `(skip, new_in_gate_def)`: `skip` is `true` while `line` is part of a
+gate definition (its body was already consumed by `_load_gate_defs!`), and
+`new_in_gate_def` is the state to carry into the next line.
+"""
+function _skip_gate_def_line(line::AbstractString, in_gate_def::Bool)
+    if in_gate_def
+        return (true, !contains(line, "}"))
+    end
+    if startswith(line, "gate ")
+        return (true, !contains(line, "}"))
+    end
+    return (false, in_gate_def)
 end
 
 """
@@ -344,14 +364,7 @@ parameterized gate calls raise an error. Qubit indices are 1-based; multiple
 function parse_QuantumClifford(filepath::String)
     content = read(filepath, String)
     dir     = dirname(abspath(filepath))
-
-    # gate definitions: includes first, then inline definitions (later wins)
-    gate_defs = Dict{String,GateDef}()
-    for m in eachmatch(r"include\s+\"([^\"]+)\"\s*;", content)
-        inc_path = joinpath(dir, m[1])
-        isfile(inc_path) && _load_gate_defs!(gate_defs, read(inc_path, String))
-    end
-    _load_gate_defs!(gate_defs, content)
+    gate_defs = _load_all_gate_defs(content, dir)
 
     circuit = QuantumClifford.AbstractOperation[]
     qubit_map = Dict{String,Int}()
@@ -362,15 +375,8 @@ function parse_QuantumClifford(filepath::String)
         line = strip(replace(raw_line, r"\s*//.*$" => ""))
         isempty(line) && continue
 
-        # Skip gate definition blocks; their bodies were consumed by _load_gate_defs!
-        if in_gate_def
-            contains(line, "}") && (in_gate_def = false)
-            continue
-        end
-        if startswith(line, "gate ")
-            in_gate_def = !contains(line, "}")
-            continue
-        end
+        (skip, in_gate_def) = _skip_gate_def_line(line, in_gate_def)
+        skip && continue
 
         # Skip directives that carry no gate information
         (startswith(line, "OPENQASM") || startswith(line, "include") ||

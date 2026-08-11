@@ -151,6 +151,18 @@ function paulis_commute(op1::CircuitOp.Type, op2::CircuitOp.Type)
 end
 
 """
+Conjugate op2's Pauli by the Clifford rotation op1 via `conjugated_by_clifford`
+and rebuild op2 with `rebuild(pauli, qubits)`. A commuting pair swaps unchanged
+(returns `(op2, op1)` directly) rather than rebuilding op2 at the union width;
+otherwise returns `(rebuild(conjugated...), op1)`.
+"""
+function _conjugate_via(op1::CircuitOp.Type, op2::CircuitOp.Type, rebuild)
+    conjugated = conjugated_by_clifford(op1,op2)
+    conjugated === nothing && return (op2, op1)
+    return (rebuild(conjugated[1], conjugated[2]), op1)
+end
+
+"""
     conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type) -> Union{Tuple{CircuitOp.Type, CircuitOp.Type}, Nothing}
 
 Move a non-Clifford CircuitOp op2 pass a Clifford CircuitOp op1 and update op2 by conjugating its pauli string by op1's pauli string.
@@ -174,18 +186,13 @@ julia> PBCCompiler.conjugate_noncliff(op1, M_Z)
 ```
 """
 function conjugate_noncliff(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    conjugated_op = @match (op1, op2) begin
+    @match (op1, op2) begin
         (CircuitOp.ExpHalfPiPauli(), CircuitOp.ExpEighPiPauli()) ||
         (CircuitOp.ExpQuatPiPauli(), CircuitOp.ExpEighPiPauli()) => begin
-            # Commuting pairs -- the overwhelming majority -- swap unchanged, so
-            # return op2 itself rather than rebuilding it at the union width
-            conjugated = conjugated_by_clifford(op1,op2)
-            conjugated === nothing && return (op2, op1)
-            CircuitOp.ExpEighPiPauli(conjugated[1], conjugated[2])
+            _conjugate_via(op1, op2, CircuitOp.ExpEighPiPauli)
         end
         _=> nothing
     end
-    return conjugated_op === nothing ? nothing : (conjugated_op,op1)
 end
 ##
 
@@ -224,17 +231,14 @@ julia> PBCCompiler.conjugate_measurement(op1, op2)
 ```
 """
 function conjugate_measurement(op1::CircuitOp.Type, op2::CircuitOp.Type)
-    conjugated_op = @match (op1, op2) begin
+    @match (op1, op2) begin
         (CircuitOp.ExpHalfPiPauli(), CircuitOp.Measurement()) ||
         (CircuitOp.ExpQuatPiPauli(), CircuitOp.Measurement()) => begin
             # See `conjugate_noncliff`: a commuting measurement crosses unchanged
-            conjugated = conjugated_by_clifford(op1,op2)
-            conjugated === nothing && return (op2, op1)
-            CircuitOp.Measurement(conjugated[1], op2.bit, conjugated[2])
+            _conjugate_via(op1, op2, (p, q) -> CircuitOp.Measurement(p, op2.bit, q))
         end
         _=> nothing
     end
-    return conjugated_op===nothing ? nothing : (conjugated_op,op1)
 end
 ##
 """
@@ -270,6 +274,28 @@ function conjugated_by_clifford(op1::CircuitOp.Type, op2::CircuitOp.Type)
 end
 ##
 """
+Merge two same-variant, same-axis rotations into one `mergedtype` rotation of
+twice the angle, or cancel them to `()` if they're inverses. Shared by the
+`ExpEighPiPauli`/`ExpEighPiPauli` and `ExpQuatPiPauli`/`ExpQuatPiPauli` arms of
+`merge_rotations`, which differ only in which "double-angle" type the merge
+produces.
+"""
+function _merge_same_axis(op1::CircuitOp.Type, op2::CircuitOp.Type, mergedtype)
+    (p1,p2) = complete_paulis(op1,op2)
+    # The qubit list is only needed on the merge branch; building it up
+    # front pays for every non-matching pair, which is nearly all of them
+    p1.xz == p2.xz || return nothing
+    if xor(p1.phase[1], p2.phase[1]) == 0x02
+        # exp(-i*theta*P) * exp(-i*theta*(-P)) = identity
+        return ()
+    elseif op1.pauli.phase == op2.pauli.phase
+        return mergedtype(p1,collect(1:length(p1)))
+    else
+        return nothing
+    end
+end
+
+"""
     merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
 
 Combine an adjacent pair of Pauli Product Rotations about the same axis.
@@ -282,37 +308,8 @@ deletes both operations. Returns `nothing` when the pair cannot be merged.
 """
 function merge_rotations(op1::CircuitOp.Type, op2::CircuitOp.Type)
     @match (op1,op2) begin
-        (ExpEighPiPauli(),ExpEighPiPauli()) => begin
-            (p1,p2) = complete_paulis(op1,op2)
-            # The qubit list is only needed on the merge branch; building it up
-            # front pays for every non-matching pair, which is nearly all of them
-            if p1.xz == p2.xz
-                if xor(p1.phase[1], p2.phase[1]) == 0x02
-                    # exp(-i*pi/8*P) * exp(-i*pi/8*(-P)) = identity
-                    return ()
-                elseif op1.pauli.phase == op2.pauli.phase
-                    return ExpQuatPiPauli(p1,collect(1:length(p1)))
-                else
-                    return nothing
-                end
-            else return nothing
-            end
-        end
-        (ExpQuatPiPauli(),ExpQuatPiPauli()) => begin
-            (p1,p2) = complete_paulis(op1,op2)
-            # See above: the qubit list is only needed on the merge branch
-            if p1.xz == p2.xz
-                if xor(p1.phase[1], p2.phase[1]) == 0x02
-                    # exp(-i*pi/4*P) * exp(-i*pi/4*(-P)) = identity
-                    return ()
-                elseif op1.pauli.phase == op2.pauli.phase
-                    return ExpHalfPiPauli(p1,collect(1:length(p1)))
-                else
-                    return nothing
-                end
-            else return nothing
-            end
-        end
+        (ExpEighPiPauli(),ExpEighPiPauli()) => _merge_same_axis(op1, op2, ExpQuatPiPauli)
+        (ExpQuatPiPauli(),ExpQuatPiPauli()) => _merge_same_axis(op1, op2, ExpHalfPiPauli)
         (ExpHalfPiPauli(),ExpHalfPiPauli()) => begin
             (p1,p2) = complete_paulis(op1,op2)
             if p1.xz == p2.xz

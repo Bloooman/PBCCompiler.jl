@@ -93,6 +93,39 @@ function check_PPM(s::Stabilizer,op::CircuitOp.Type, num_qubits::Int)
 end
 
 """
+Resolve the anticommuting-stabilizer-row branch of a measurement, common to
+every runtime that can hit it: splice compensating rotations into the circuit
+(instead of projecting) so the state update happens through the circuit, and
+return the `ClassicalRandomRes` outcome. `result` is the coin flip already
+decided by the caller (random for a faithful runtime, biased for `TraversalRuntime`).
+"""
+function _resolve_anticommuting_measurement!(state::CompilerState, op::CircuitOp.Type, sv, anticom::Int, num_qubits::Int, pauli, result::Bool)
+    q_1=[1:num_qubits;]
+    # copy: the row is a view into the tableau, which later projections
+    # mutate in place
+    Q_1=ExpQuatPiPauli(copy(sv[anticom]),q_1)
+    p_2=(-1)^result*op.pauli
+    Q_2=ExpQuatPiPauli(p_2,op.qubits)
+    pushfirst!(state.circuit,Q_1,Q_2,Q_1)
+    # The inserted rotations are Clifford, so commuting them out is all
+    # the preprocessing pipeline would do here
+    absorb_cliffords!(state.circuit)
+    return (ClassicalRandomRes(pauli, result), state)
+end
+
+"""
+Record the measured sign onto the stabilizer row `project!` grew in place at
+`projection[2]`. The post-measurement state is stabilized by the SIGNED
+observable: outcome -1 (`result=true`) stabilizes -P, not +P. Recording +P
+unconditionally flips later dependent outcomes on half the shots.
+"""
+function _record_projection!(md, projection, result::Bool)
+    phs = phases(stabilizerview(md))
+    phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+    return nothing
+end
+
+"""
     get_measurement_result(state::CompilerState, op::CircuitOp.Type) -> Union{Tuple{MeasurementResult.Type, CompilerState}, Nothing}
 
 Perform Joint Measurement on a CircuitOp.Measurement
@@ -116,18 +149,7 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
     # splicing compensating rotations into the circuit, not by projecting.
     anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
     if anticom !== nothing
-        result = rand(Bool)
-        q_1=[1:num_qubits;]
-        # copy: the row is a view into the tableau, which later projections
-        # mutate in place
-        Q_1=ExpQuatPiPauli(copy(sv[anticom]),q_1)
-        p_2=(-1)^result*op.pauli
-        Q_2=ExpQuatPiPauli(p_2,op.qubits)
-        pushfirst!(state.circuit,Q_1,Q_2,Q_1)
-        # The inserted rotations are Clifford, so commuting them out is all
-        # the preprocessing pipeline would do here
-        absorb_cliffords!(state.circuit)
-        return (ClassicalRandomRes(pauli, result), state)
+        return _resolve_anticommuting_measurement!(state, op, sv, anticom, num_qubits, pauli, rand(Bool))
     end
     projection = project!(md, pauli)
     if projection[3] === nothing
@@ -139,11 +161,7 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
         # data part's eigenvalue under the current stabilizer group
         # (-1 for e.g. a -Z input row) must multiply the outcome.
         result ⊻= data_part_eigenvalue(state, op, num_qubits)
-        # The post-measurement state is stabilized by the SIGNED observable:
-        # outcome -1 (result=true) stabilizes -P, not +P. Recording +P
-        # unconditionally flips later dependent outcomes on half the shots.
-        phs = phases(stabilizerview(md))
-        phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+        _record_projection!(md, projection, result)
         @reset state.runtime = rt
         return (QuantumRes(pauli, result), state)
     else
@@ -161,8 +179,7 @@ function get_measurement_result(state::CompilerState{<:AbstractStabilizerRuntime
     projection = project!(md, pauli)
     if projection[3] === nothing
         (rt, result) = quantum_measurement(rt, op, num_qubits)
-        phs = phases(stabilizerview(md))
-        phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+        _record_projection!(md, projection, result)
         @reset state.runtime = rt
         return (QuantumRes(pauli, result), state)
     else
@@ -181,22 +198,11 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
     pauli = embed(num_qubits, op.qubits, op.pauli)
     # See the SimRuntime method for the branch structure
     anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
-    if anticom !== nothing
-        q_1=[1:num_qubits;]
-        # copy: the row is a view into the tableau, which later projections
-        # mutate in place
-        Q_1=ExpQuatPiPauli(copy(sv[anticom]),q_1)
-        p_2=(-1)^result*op.pauli
-        Q_2=ExpQuatPiPauli(p_2,op.qubits)
-        pushfirst!(state.circuit,Q_1,Q_2,Q_1)
-        absorb_cliffords!(state.circuit)
-        return (ClassicalRandomRes(pauli, result), state)
-    end
+    anticom !== nothing && return _resolve_anticommuting_measurement!(state, op, sv, anticom, num_qubits, pauli, result)
     projection = project!(md, pauli)
     if projection[3] === nothing
         # The recorded stabilizer row must carry the measured sign
-        phs = phases(stabilizerview(md))
-        phs[projection[2]] = (phs[projection[2]] + (result ? 0x2 : 0x0)) & 0x3
+        _record_projection!(md, projection, result)
         return (QuantumRes(pauli, result), state)
     else
         result = Bool(projection[3]>>1)
@@ -224,6 +230,20 @@ function _mark_activated!(activated::BitVector, real_p, offset::Int, candidates)
 end
 
 """
+Apply the deferred T gate to every magic qubit newly activated by this
+measurement (see `_mark_activated!` and `create_magic_state`). `pct_width`/
+`pct_offset` locate the qubit within the register `embedded_pcT` is cached
+against, which differs between `SimRuntime` (magic-only register) and
+`StabilizerRuntime` (full register).
+"""
+function _activate_and_apply_T!(quantum_state, activated::BitVector, real_p, offset::Int, candidates, pct_width::Int, pct_offset::Int)
+    for k in _mark_activated!(activated, real_p, offset, candidates)
+        apply!(quantum_state, embedded_pcT(pct_width, pct_offset + k))
+    end
+    return nothing
+end
+
+"""
     quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
 Perform quantum measurement simulation on given state using QuantumClifford.jl backend
 """
@@ -237,14 +257,10 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     # register before slicing by absolute qubit indices (out-of-bounds
     # PauliOperator indexing silently yields identity instead of throwing)
     real_p=embed(num_qubits, op.qubits, op.pauli)[magicqubits]
-    # Deferred T gates: activate every magic qubit this measurement touches
-    # whose T has not been applied yet (see `create_magic_state`). The
-    # activation bit stays set after the qubit collapses back to a stabilizer
-    # state — reapplying T there would be wrong
     num_magic = length(real_p)
-    for k in _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
-        apply!(quantum_state, embedded_pcT(num_magic, k))
-    end
+    # The activation bit stays set after the qubit collapses back to a
+    # stabilizer state — reapplying T there would be wrong
+    _activate_and_apply_T!(quantum_state, rt.activated, real_p, 0, 1:num_magic, num_magic, 0)
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
     append!(rt.invsparsity_history,invsparsity(quantum_state))
@@ -262,14 +278,10 @@ function quantum_measurement(rt::StabilizerRuntime, op::CircuitOp.Type, num_qubi
     # and the activation loop below is a no-op
     num_input_qubits = num_qubits - num_gadget_qubits(rt)
     real_p=embed(num_qubits, op.qubits, op.pauli)
-    # Deferred T gates: activate every magic qubit this measurement touches whose
-    # T has not been applied yet (see `create_magic_state`). Magic qubits are
-    # selected by value from `op.qubits` (the operation's support), so this is
-    # correct regardless of where in the register they land
+    # Magic qubits are selected by value from `op.qubits` (the operation's
+    # support), so this is correct regardless of where in the register they land
     candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
-    for k in _mark_activated!(rt.activated, real_p, num_input_qubits, candidates)
-        apply!(quantum_state, embedded_pcT(num_qubits, num_input_qubits+k))
-    end
+    _activate_and_apply_T!(quantum_state, rt.activated, real_p, num_input_qubits, candidates, num_qubits, num_input_qubits)
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
     append!(rt.invsparsity_history,invsparsity(quantum_state))

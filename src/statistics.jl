@@ -36,6 +36,23 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
 end
 
 """
+Select the measurements to build an interaction graph/hypergraph from, and the
+qubit register size to size it over. When `quantum_only` is true, use the QPU
+workload (magic-qubit-only Paulis) and size the register to the widest of
+them; otherwise use every assigned measurement result and size the register to
+the full stabilizer group. Shared by `get_graph` and `get_hypergraph`.
+"""
+function _select_measurement_results(result::CompilationResult, quantum_only::Bool)
+    measurements = quantum_only ? result.QPU_workload :
+        [result.measurement_results[i] for i in eachindex(result.measurement_results)
+         if isassigned(result.measurement_results, i)]
+    num_vertices = quantum_only ?
+        (isempty(measurements) ? 0 : maximum(nqubits(m.pauli) for m in measurements)) :
+        size(result.stabilizer_group, 2)
+    return (measurements, num_vertices)
+end
+
+"""
     get_graph(result::CompilationResult, quantum_only::Bool=false) -> SimpleWeightedGraph
 
 Extract the qubit interaction graph from a `CompilationResult`.
@@ -46,12 +63,7 @@ injected qubits that actually live on the QPU (the `QPU_workload` measurements, 
 Pauli strings cover only the magic-state qubits).
 """
 function get_graph(result::CompilationResult, quantum_only::Bool=false)
-    measurements = quantum_only ? result.QPU_workload :
-        [result.measurement_results[i] for i in eachindex(result.measurement_results)
-         if isassigned(result.measurement_results, i)]
-    num_nodes = quantum_only ?
-        (isempty(measurements) ? 0 : maximum(nqubits(m.pauli) for m in measurements)) :
-        size(result.stabilizer_group, 2)
+    (measurements, num_nodes) = _select_measurement_results(result, quantum_only)
     g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
     for m in measurements
         p=m.pauli
@@ -68,6 +80,13 @@ function get_graph(result::CompilationResult, quantum_only::Bool=false)
     end
     return g
 end
+
+"""
+Edge/hyperedge weight when merging `N` graphs/hypergraphs into one: `+1` if
+the edge appears in every input, `-1` otherwise. Shared by `variant_graph` and
+`variant_hypergraph`.
+"""
+_edge_occurrence_weight(count::Int, N::Int) = count == N ? 1 : -1
 
 """
     variant_graph(graphs::Vector{<:SimpleWeightedGraph}) -> SimpleWeightedGraph
@@ -97,7 +116,7 @@ function variant_graph(graphs::Vector{<:SimpleWeightedGraph})::SimpleWeightedGra
     J_vals = Int[]
     V_vals = Int[]
     for ((u, v), count) in edge_count
-        w = count == N ? 1 : -1
+        w = _edge_occurrence_weight(count, N)
         push!(I_vals, u, v)
         push!(J_vals, v, u)
         push!(V_vals, w, w)
@@ -149,14 +168,9 @@ When quantum_only is false, plot interaction hypergraph among all qubits using a
 When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
 """
 function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
-    measurements = quantum_only ? result.QPU_workload :
-        [result.measurement_results[i] for i in eachindex(result.measurement_results)
-         if isassigned(result.measurement_results, i)]
     # Fix the vertex count explicitly; inferring it from the sparse indices would
     # silently drop qubits that no measurement touches
-    num_v = quantum_only ?
-        (isempty(measurements) ? 0 : maximum(nqubits(m.pauli) for m in measurements)) :
-        size(result.stabilizer_group, 2)
+    (measurements, num_v) = _select_measurement_results(result, quantum_only)
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
@@ -224,7 +238,7 @@ function variant_hypergraph(hypergraphs::Vector{KaHyPar.HyperGraph})::KaHyPar.Hy
     A = sparse(I_vals, J_vals, ones(Int, length(I_vals)), n_vertices, n_out_edges)
 
     vertex_weights = ones(Int, n_vertices)
-    edge_weights = [edge_count[e] == N ? 1 : -1 for e in unique_edges]
+    edge_weights = [_edge_occurrence_weight(edge_count[e], N) for e in unique_edges]
 
     return KaHyPar.HyperGraph(A, vertex_weights, edge_weights)
 end
