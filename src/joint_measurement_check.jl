@@ -152,7 +152,7 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
     end
 end
 
-function get_measurement_result(state::CompilerState{<:StabilizerRuntime}, op::CircuitOp.Type)
+function get_measurement_result(state::CompilerState{<:AbstractStabilizerRuntime}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
     md = state.stabilizer_group
@@ -297,12 +297,12 @@ end
 data_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
-    quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
-Perform quantum measurement simulation on given state using classical sampling according to weight determined by user named outcome_probs
+    quantum_measurement(state::Union{DummyRuntime,DummyStabilizerRuntime}, op::CircuitOp.Type, num_qubits::Int) -> Tuple{<:AbstractRuntime, Bool}
+Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`.
 """
-function quantum_measurement(rt::DummyRuntime, op::CircuitOp.Type, num_qubits::Int)
+function quantum_measurement(rt::Union{DummyRuntime,DummyStabilizerRuntime}, op::CircuitOp.Type, num_qubits::Int)
     result = rand() < rt.p1_outcome_probs
-    return (rt,result)
+    return (rt, result)
 end
 
 """Resolve conditional circuit operations defined by CircuitOp.BitConditional within circuit defined in state.circuit"""

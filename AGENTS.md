@@ -62,6 +62,10 @@ The `preprocess_circuit` function transforms circuits through stages:
   classification differs
 - `DummyRuntime` / `TraversalRuntime` - Replace quantum measurements with
   classical coin flips of a fixed bias
+- `DummyStabilizerRuntime` - Cheap stand-in for `StabilizerRuntime`: same
+  control flow (no anticommuting coin-flip branch), but coin-flips every
+  non-deterministic outcome instead of simulating the full register. Not
+  physically faithful, same caveat as `DummyRuntime`
 - `CompilerState{R,T}` - Tracks measurement results, tableau, classical
   register, circuit, instruction pointer and runtime. Parameterized on the
   runtime and tableau types to keep the execution loop type stable

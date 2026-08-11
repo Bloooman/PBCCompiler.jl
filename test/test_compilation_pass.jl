@@ -1,11 +1,12 @@
 @testitem "Preprocess" tags=[:preprocess] begin
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime, DummyRuntime
+using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime, DummyRuntime, StabilizerRuntime, DummyStabilizerRuntime
 using PBCCompiler.MeasurementResult
 using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
 using QuantumClifford: @P_str, @S_str, stabilizerview
 using Moshi.Derive: @derive
+using Moshi.Data: variant_name
 using Moshi.Match: isa_variant
 
 @derive CircuitOp[Eq, Show]
@@ -98,6 +99,27 @@ end
                                          S"+Z__
                                            +_Z_
                                            +_ZZ")
+end
+
+@testset "DummyStabilizerRuntime Correctness" begin
+    circuit = Circuit([
+    PauliConditional(P"X", [1], P"Z", [2]),
+    ExpHalfPiPauli(P"YZ", [1, 2]),
+    ExpEighPiPauli(P"Z", [2]),
+    Measurement(P"Z", 1, [1]),
+    Measurement(P"Z", 2, [2])
+    ])
+
+    # StabilizerRuntime has no anticommuting coin-flip branch, so its
+    # classification shape differs from SimRuntime/DummyRuntime on this same
+    # circuit (no ClassicalRandomRes). DummyStabilizerRuntime mirrors
+    # StabilizerRuntime's get_measurement_result, so compare against it
+    # directly rather than pinning fresh expected values.
+    stab_result = run(copy(circuit), StabilizerRuntime())
+    dummy_result = run(circuit, DummyStabilizerRuntime())
+
+    @test variant_name.(stab_result.measurement_results) ==
+          variant_name.(dummy_result.measurement_results)
 end
 
 end

@@ -119,6 +119,10 @@ end
 
 SimRuntime() = SimRuntime(nothing, nothing, Int[])
 
+"""Supertype of runtimes that classify every non-deterministic outcome by
+projecting the full register (no anticommuting coin-flip branch)."""
+abstract type AbstractStabilizerRuntime <: AbstractRuntime end
+
 """
 Runtime that simulates the full register — data qubits and magic qubits together —
 with QuantumClifford's `GeneralizedStabilizer`.
@@ -140,7 +144,7 @@ and a `ClassicalRandomRes` under `SimRuntime`. Expect a substantially larger
 and the metrics derived from it differ, so do not compare QPU-workload figures
 across the two runtimes.
 """
-struct StabilizerRuntime{Q} <: AbstractRuntime
+struct StabilizerRuntime{Q} <: AbstractStabilizerRuntime
     # See `SimRuntime` on why the memory type is a parameter
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Q
@@ -164,6 +168,20 @@ struct DummyRuntime <: AbstractRuntime
 end
 
 DummyRuntime() = DummyRuntime(0.5)
+
+"""Cheap stand-in for `StabilizerRuntime`: same control flow (no anticommuting
+coin-flip branch — every non-deterministic outcome reaches `quantum_measurement`),
+but replaces the actual quantum measurement with a classical coin flip of a fixed
+bias. Exists for tests that need `StabilizerRuntime`'s measurement classification
+shape without paying for `GeneralizedStabilizer` simulation.
+
+Like `DummyRuntime`, this is not physically faithful."""
+struct DummyStabilizerRuntime <: AbstractStabilizerRuntime
+    """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
+    p1_outcome_probs::Float64
+end
+
+DummyStabilizerRuntime() = DummyStabilizerRuntime(0.5)
 
 """Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime
