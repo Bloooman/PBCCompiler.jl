@@ -1,6 +1,5 @@
 ##
 using Graphs, SimpleWeightedGraphs, KaHyPar, SparseArrays, LinearAlgebra
-using QuantumClifford: xbit, zbit
 using Statistics
 using StatsBase
 
@@ -35,46 +34,165 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
     return (distribution, data)
 end
 
+"""Valid values for the `qubits` keyword of [`get_graph`](@ref)/[`get_hypergraph`](@ref)."""
+const QUBIT_VIEWS = (:all, :data, :magic)
+
+"""Valid values for the `variant` keyword of [`get_graph`](@ref)/[`get_hypergraph`](@ref)."""
+const RESULT_VARIANTS = (:all, :quantum, :determ, :random)
+
+# `variant` value -> the MeasurementResult variant it keeps
+const _VARIANT_NAME = Dict(
+    :quantum => :QuantumRes,
+    :determ  => :ClassicalDetermRes,
+    :random  => :ClassicalRandomRes,
+)
+
 """
-Select the measurements to build an interaction graph/hypergraph from, and the
-qubit register size to size it over. When `quantum_only` is true, use the QPU
-workload (magic-qubit-only Paulis) and size the register to the widest of
-them; otherwise use every assigned measurement result and size the register to
-the full stabilizer group. Shared by `get_graph` and `get_hypergraph`.
+`result.measurement_results` skipping unassigned slots.
 """
-function _select_measurement_results(result::CompilationResult, quantum_only::Bool)
-    measurements = quantum_only ? result.QPU_workload :
-        [result.measurement_results[i] for i in eachindex(result.measurement_results)
-         if isassigned(result.measurement_results, i)]
-    num_vertices = quantum_only ?
-        (isempty(measurements) ? 0 : maximum(nqubits(m.pauli) for m in measurements)) :
-        size(result.stabilizer_group, 2)
-    return (measurements, num_vertices)
+assigned_measurements(result::CompilationResult) =
+    [result.measurement_results[i] for i in eachindex(result.measurement_results)
+     if isassigned(result.measurement_results, i)]
+
+"""
+Keep only the measurements whose `MeasurementResult` variant matches `variant`
+(`:all` keeps everything).
+"""
+filter_variant(measurements, variant::Symbol) =
+    variant === :all ? measurements :
+    filter(m -> variant_name(m) === _VARIANT_NAME[variant], measurements)
+
+"""
+    qubit_row_map(view, n_input, register_n) -> (row_of, nrows)
+
+`row_of(q)` maps a register qubit index to its vertex row, or `nothing` when
+the qubit is not included. `nrows` is the resulting number of vertices.
+
+Under `:data` every magic qubit maps to the same trailing row -- the collapsed
+magic lane -- which is lossless for the current compilation strategy, where a
+magic qubit is injected and collapsed by two adjacent measurements and no two
+magic qubits are ever live at once, so their lanes never overlap.
+"""
+function qubit_row_map(view::Symbol, n_input::Int, register_n::Int)
+    view === :all   && return (q -> (1 <= q <= register_n ? q : nothing), register_n)
+    view === :magic && return (q -> (q > n_input ? q - n_input : nothing), register_n - n_input)
+    view === :data  && return (q -> (q <= n_input ? q : n_input + 1), n_input + 1)
+    error("unknown qubit view $view; must be one of $(join(QUBIT_VIEWS, ", "))")
 end
 
 """
-    get_graph(result::CompilationResult, quantum_only::Bool=false) -> SimpleWeightedGraph
+Vertex rows the measurement's Pauli support occupies.
+"""
+function measurement_rows(meas, row_of, register_n::Int)
+    rows = Set{Int}()
+    p = meas.pauli
+    for q in 1:min(Int(nqubits(p)), register_n)
+        p[q] == (false, false) && continue
+        r = row_of(q)
+        r === nothing || push!(rows, r)
+    end
+    return rows
+end
+
+"""
+The support rule: keep only measurements with support in the selected rows.
+"""
+select_measurements(measurements, row_of, register_n::Int) =
+    [m for m in measurements if !isempty(measurement_rows(m, row_of, register_n))]
+
+"""
+Select the measurements to build an interaction graph/hypergraph from, and the
+vertex count to size it over.
+
+`qubits` picks the vertex rows (`:all` every register qubit, `:data` the data
+qubits plus one collapsed magic lane, `:magic` the magic-state block alone,
+re-indexed from 1); `:data`/`:magic` require `n_input` (the data-qubit count),
+since `CompilationResult` does not record the data/magic split. A measurement
+becomes an edge/hyperedge only if its Pauli has support in the selected rows.
+
+The register width used to size and bound this is `max(size(stabilizer_group,
+2), widest assigned measurement Pauli)`, not `size(stabilizer_group, 2)`
+alone: [`AbstractStabilizerRuntime`](@ref)'s `to_result`
+(`logic.jl`) slices `stabilizer_group` down to the data qubits before storing
+it in `CompilationResult`, so its tableau width alone is the *data*-qubit
+count, not the full register -- while `measurement_results` there keeps the
+original full-register Paulis. For [`SimRuntime`](@ref)/[`DummyRuntime`](@ref)
+results `stabilizer_group` is already full-register-width and this reduces to
+that width. Either way this sizes off `measurement_results`/`stabilizer_group`
+rather than trusting `QPU_workload`'s Pauli width, which is only
+magic-register-wide for `SimRuntime`/`DummyRuntime` results and
+full-register-wide for `AbstractStabilizerRuntime` results.
+
+`variant` independently restricts which `MeasurementResult` variant is
+eligible to become an edge/hyperedge (`:all`, `:quantum`, `:determ`,
+`:random`). Note this measurement-support view is drawn from
+`measurement_results`, not `QPU_workload`, so `qubits=:magic, variant=:quantum`
+approximates but does not exactly reproduce the old `quantum_only=true`
+selection -- see [`get_hypergraph`](@ref) for the precise difference.
+
+Returns `(measurements, num_vertices, row_of, register_n)`: `row_of` must be
+used to map each measurement's raw (full-register) qubit indices to vertex
+rows before building edges/hyperedges, since `:data`/`:magic` renumber and
+collapse qubits rather than using them directly.
+
+Shared by `get_graph` and `get_hypergraph`.
+"""
+function _select_measurement_results(result::CompilationResult;
+        qubits::Symbol=:all, n_input::Union{Int,Nothing}=nothing, variant::Symbol=:all)
+    qubits in QUBIT_VIEWS ||
+        error("qubits must be one of $(join(QUBIT_VIEWS, ", ")); got $qubits")
+    variant in RESULT_VARIANTS ||
+        error("variant must be one of $(join(RESULT_VARIANTS, ", ")); got $variant")
+    (qubits === :data || qubits === :magic) && n_input === nothing &&
+        throw(ArgumentError("qubits=$qubits requires n_input (the data-qubit count)"))
+    all_m = assigned_measurements(result)
+    tableau_n = size(result.stabilizer_group, 2)
+    register_n = max(tableau_n,
+        isempty(all_m) ? 0 : maximum(Int(nqubits(m.pauli)) for m in all_m))
+    (row_of, num_vertices) = qubit_row_map(qubits, something(n_input, 0), register_n)
+    measurements = select_measurements(filter_variant(all_m, variant), row_of, register_n)
+    return (measurements, num_vertices, row_of, register_n)
+end
+
+"""
+    get_graph(result::CompilationResult; qubits=:all, n_input=nothing, variant=:all) -> SimpleWeightedGraph
 
 Extract the qubit interaction graph from a `CompilationResult`.
 
-When `quantum_only` is false, build the interaction graph among all qubits using all
-Pauli Product Measurements. When `quantum_only` is true, build the interaction graph of
-injected qubits that actually live on the QPU (the `QPU_workload` measurements, whose
-Pauli strings cover only the magic-state qubits).
+`qubits` selects which qubits become vertices: `:all` (default) every register
+qubit, `:data` the data qubits plus one collapsed magic lane, `:magic` the
+magic-state block alone (re-indexed from 1). `:data`/`:magic` require
+`n_input`, the number of data qubits, since `CompilationResult` does not
+record the data/magic split. A measurement becomes an edge only if its Pauli
+has support among the selected qubits. `variant` independently restricts
+which `MeasurementResult` variant is eligible (`:all`, `:quantum`, `:determ`,
+`:random`).
+
+`qubits=:all` (the default) matches the old `quantum_only=false` default,
+sized off the register width computed by [`_select_measurement_results`](@ref)
+(not simply `size(result.stabilizer_group, 2)` -- see there for why).
+`qubits=:magic, variant=:quantum` is the closest equivalent to the old
+`quantum_only=true`,
+but is not identical to it: unlike `QPU_workload`, this view is drawn from
+`measurement_results` filtered by qubit support, so for
+[`SimRuntime`](@ref)/[`DummyRuntime`](@ref) results it is a superset (weight-1
+magic Paulis that `to_result` absorbed locally are not in `QPU_workload` but
+do show up here), and for [`AbstractStabilizerRuntime`](@ref) results the two
+are unrelated (`QPU_workload` there keeps full-register Paulis, including ones
+with no magic support at all, which this view drops).
 """
-function get_graph(result::CompilationResult, quantum_only::Bool=false)
-    (measurements, num_nodes) = _select_measurement_results(result, quantum_only)
+function get_graph(result::CompilationResult;
+        qubits::Symbol=:all, n_input::Union{Int,Nothing}=nothing, variant::Symbol=:all)
+    (measurements, num_nodes, row_of, register_n) =
+        _select_measurement_results(result; qubits, n_input, variant)
     g=SimpleWeightedGraph{Int64, Int64}(Int64(num_nodes))
     for m in measurements
         p=m.pauli
-        for i in 1:length(p)
-            if xbit(p)[i] || zbit(p)[i]
-                for j in i+1:length(p)
-                    if xbit(p)[j] || zbit(p)[j]
-                        current_w = get_weight(g, i, j)
-                        add_edge!(g,i,j,current_w + 1)
-                    end
-                end
+        rows = sort!(collect(measurement_rows(m, row_of, register_n)))
+        for a in 1:length(rows)
+            for b in a+1:length(rows)
+                current_w = get_weight(g, rows[a], rows[b])
+                add_edge!(g, rows[a], rows[b], current_w + 1)
             end
         end
     end
@@ -128,21 +246,25 @@ function variant_graph(graphs::Vector{<:SimpleWeightedGraph})::SimpleWeightedGra
 end
 ##
 """
-    weight_std_graph(input_circuit::Circuit, rt::AbstractRuntime, input_state=nothing; quantum_only=false, num_shots=1000)
+    weight_std_graph(input_circuit::Circuit, rt::AbstractRuntime, input_state=nothing;
+                      qubits=:all, n_input=nothing, variant=:all, num_shots=1000)
 
 Run the circuit `num_shots` times, extract the interaction graph of each shot with
 [`get_graph`](@ref), and return a new `SimpleWeightedGraph` whose edge weights are the
 standard deviation of each edge's weight across the shots.
 
+`qubits`, `n_input`, and `variant` are forwarded to `get_graph`.
+
 Edges absent from a shot's graph contribute weight 0 to the computation.
 """
-function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stabilizer, Nothing}=nothing; quantum_only::Bool=false, num_shots::Int=1000) where R<:AbstractRuntime
+function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stabilizer, Nothing}=nothing;
+        qubits::Symbol=:all, n_input::Union{Int,Nothing}=nothing, variant::Symbol=:all, num_shots::Int=1000) where R<:AbstractRuntime
     graphs =  Vector{SimpleWeightedGraph}(undef, num_shots)
     # See `get_distribution`: compile once, run each shot off a copy
     compiled = build_compilerstate(input_circuit, rt, input_state)
     for i in 1:num_shots
         state_i=execute!(copy(compiled))
-        graphs[i]=get_graph(to_result(state_i), quantum_only)
+        graphs[i]=get_graph(to_result(state_i); qubits, n_input, variant)
     end
     n = nv(first(graphs))
     all_edges = Set{Tuple{Int,Int}}()
@@ -160,21 +282,42 @@ function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stab
 end
 ##
 """
-    get_hypergraph(result::S, quantum_only=false) where S<:AbstractRuntime
+    get_hypergraph(result::CompilationResult; qubits=:all, n_input=nothing, variant=:all) -> (A, h)
 
-Extract qubit interaction hypergraph from resulted CompilerState.
+Extract the qubit interaction hypergraph from a `CompilationResult`.
 
-When quantum_only is false, plot interaction hypergraph among all qubits using all Pauli Product Measurement
-When quantum_only is true, plot interaction hypergraph of injected qubits that actually live on QPU
+`qubits` selects which qubits become vertices: `:all` (default) every register
+qubit, `:data` the data qubits plus one collapsed magic lane, `:magic` the
+magic-state block alone (re-indexed from 1). `:data`/`:magic` require
+`n_input`, the number of data qubits, since `CompilationResult` does not
+record the data/magic split. A measurement becomes a hyperedge only if its
+Pauli has support among the selected qubits. `variant` independently
+restricts which `MeasurementResult` variant is eligible (`:all`, `:quantum`,
+`:determ`, `:random`).
+
+`qubits=:all` (the default) matches the old `quantum_only=false` default,
+sized off the register width computed by [`_select_measurement_results`](@ref)
+(not simply `size(result.stabilizer_group, 2)` -- see there for why).
+`qubits=:magic, variant=:quantum` is the closest equivalent to the old
+`quantum_only=true`,
+but is not identical to it: unlike `QPU_workload`, this view is drawn from
+`measurement_results` filtered by qubit support, so for
+[`SimRuntime`](@ref)/[`DummyRuntime`](@ref) results it is a superset (weight-1
+magic Paulis that `to_result` absorbed locally are not in `QPU_workload` but
+do show up here), and for [`AbstractStabilizerRuntime`](@ref) results the two
+are unrelated (`QPU_workload` there keeps full-register Paulis, including ones
+with no magic support at all, which this view drops).
 """
-function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
+function get_hypergraph(result::CompilationResult;
+        qubits::Symbol=:all, n_input::Union{Int,Nothing}=nothing, variant::Symbol=:all)
     # Fix the vertex count explicitly; inferring it from the sparse indices would
     # silently drop qubits that no measurement touches
-    (measurements, num_v) = _select_measurement_results(result, quantum_only)
+    (measurements, num_v, row_of, register_n) =
+        _select_measurement_results(result; qubits, n_input, variant)
     paulis=[m.pauli for m in measurements]
     collected_edges = Vector{Vector{Int}}()
     for p in paulis
-        push!(collected_edges, _qubit_coverage(p))
+        push!(collected_edges, _qubit_coverage(p, row_of, register_n))
     end
     w=countmap(collected_edges)
     I = Int[]
@@ -193,10 +336,20 @@ function get_hypergraph(result::CompilationResult, quantum_only::Bool=false)
     return (A, h)
 end
 
-function _qubit_coverage(p::PauliOperator)
-    bool_vec = [p[i] for i in 1:nqubits(p)]
-    idx=findall(x -> x !== (false,false), bool_vec)
-    return idx
+"""
+Vertex rows `p`'s support maps to under `row_of`, sorted and deduplicated
+(qubits mapping to the same row -- e.g. the collapsed `:data`-view magic lane
+-- contribute one vertex, not one per qubit).
+"""
+function _qubit_coverage(p::PauliOperator, row_of, register_n::Int)
+    bool_vec = [p[i] for i in 1:min(Int(nqubits(p)), register_n)]
+    idx = findall(x -> x !== (false,false), bool_vec)
+    rows = Set{Int}()
+    for i in idx
+        r = row_of(i)
+        r === nothing || push!(rows, r)
+    end
+    return sort!(collect(rows))
 end
 
 ##

@@ -104,9 +104,9 @@ end
     ])
     state = run(copy(circuit), DummyRuntime())
     result = to_result(state)
-    g_all = get_graph(result, false)
+    g_all = get_graph(result; qubits=:all)
     @test nv(g_all) == size(result.stabilizer_group, 2)
-    g_qpu = get_graph(result, true)
+    g_qpu = get_graph(result; qubits=:magic, n_input=2)
     @test nv(g_qpu) >= 0  # smoke: quantum-only graph builds without error
 
     g_std = weight_std_graph(circuit, DummyRuntime(); num_shots = 5)
