@@ -154,7 +154,9 @@ end
 
 function to_result(state::CompilerState)
     num_qubits = nqubits(state.stabilizer_group)
-    quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
+    meas_result = state.measurement_results
+    assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
+    quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
     magicqubits = num_qubits - length(quantum) + 1 : num_qubits
 
     excluded_local = Set{Int}()
@@ -193,13 +195,10 @@ num_gadget_qubits(rt::AbstractStabilizerRuntime) =
 
 function to_result(state::CompilerState{<:AbstractStabilizerRuntime})
     num_qubits = nqubits(state.stabilizer_group)
-    quantum = filter(mr -> isa_variant(mr, QuantumRes), state.measurement_results)
+    meas_result = state.measurement_results
+    assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
+    quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
     num_input_qubits = num_qubits - num_gadget_qubits(state.runtime)
-    qpu_load = Vector{MeasurementResult.Type}()
-
-    for mr in quantum
-        push!(qpu_load, QuantumRes(mr.pauli, mr.result))
-    end
 
     keep_qubits = collect(1:num_input_qubits)
     s_sub = stabilizerview(state.stabilizer_group)[:, keep_qubits]
@@ -208,7 +207,7 @@ function to_result(state::CompilerState{<:AbstractStabilizerRuntime})
 
     # CompilationResult keeps the plain Stabilizer representation (stable
     # serialization format); extract it from the working tableau
-    CompilationResult(state.measurement_results, qpu_load, s_clean, length(qpu_load))
+    CompilationResult(state.measurement_results, quantum, s_clean, length(quantum))
 end
 
 """
