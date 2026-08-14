@@ -76,7 +76,7 @@ magic qubits are ever live at once, so their lanes never overlap.
 function qubit_row_map(view::Symbol, n_input::Int, register_n::Int)
     view === :all   && return (q -> (1 <= q <= register_n ? q : nothing), register_n)
     view === :magic && return (q -> (q > n_input ? q - n_input : nothing), register_n - n_input)
-    view === :data  && return (q -> (q <= n_input ? q : n_input + 1), n_input + 1)
+    view === :data  && return (q -> (q <= n_input ? q : n_input), n_input)
     error("unknown qubit view $view; must be one of $(join(QUBIT_VIEWS, ", "))")
 end
 
@@ -323,14 +323,15 @@ function get_hypergraph(result::CompilationResult;
     I = Int[]
     J = Int[]
     i=1
-    for row in keys(w)
+    cleaned_w = filter(p-> length(p.first) > 1, w)
+    for row in keys(cleaned_w)
         append!(I,row)
         col=fill(i,length(row))
         append!(J,col)
         i+=1
     end
     V = Int.(ones(length(I)))
-    edge_weights=collect(values(w))
+    edge_weights=collect(values(cleaned_w))
     A = sparse(I, J, V, num_v, length(edge_weights))
     h = KaHyPar.HyperGraph(A,ones(Int, num_v),edge_weights)
     return (A, h)
