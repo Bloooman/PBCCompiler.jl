@@ -52,11 +52,16 @@ end
     end
 end
 
-@testset "qubits=:data collapses the magic block into one lane" begin
+@testset "qubits=:data sizes to the data block alone, dropping the magic block" begin
     state = run(copy(circuit()), DummyStabilizerRuntime())
     result = to_result(state)
+
+    g = get_graph(result; qubits=:data, n_input=N_INPUT)
+    @test nv(g) == N_INPUT
+
     (A, h) = get_hypergraph(result; qubits=:data, n_input=N_INPUT)
-    @test size(A, 1) == N_INPUT + 1
+    @test size(A, 1) == N_INPUT
+    @test Int(h.n_vertices) == N_INPUT
 end
 
 @testset ":data/:magic without n_input raise ArgumentError" begin

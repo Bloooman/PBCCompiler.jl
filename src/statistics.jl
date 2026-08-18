@@ -68,15 +68,19 @@ filter_variant(measurements, variant::Symbol) =
 `row_of(q)` maps a register qubit index to its vertex row, or `nothing` when
 the qubit is not included. `nrows` is the resulting number of vertices.
 
-Under `:data` every magic qubit maps to the same trailing row -- the collapsed
-magic lane -- which is lossless for the current compilation strategy, where a
-magic qubit is injected and collapsed by two adjacent measurements and no two
-magic qubits are ever live at once, so their lanes never overlap.
+`:data` and `:magic` are complementary and symmetric: each keeps its own
+block's qubits as individual vertices (re-indexed from 1) and drops the
+other block entirely -- neither collapses multiple qubits onto one vertex.
+(The playground's plotting-only `--qubits data` view does collapse the magic
+block into a single lane for display; that collapsing is specific to
+plotting and intentionally not reproduced here, since it would conflate the
+magic block's resource footprint with whichever data qubit absorbed the
+lane.)
 """
 function qubit_row_map(view::Symbol, n_input::Int, register_n::Int)
     view === :all   && return (q -> (1 <= q <= register_n ? q : nothing), register_n)
     view === :magic && return (q -> (q > n_input ? q - n_input : nothing), register_n - n_input)
-    view === :data  && return (q -> (q <= n_input ? q : n_input), n_input)
+    view === :data  && return (q -> (q <= n_input ? q : nothing), n_input)
     error("unknown qubit view $view; must be one of $(join(QUBIT_VIEWS, ", "))")
 end
 
@@ -105,9 +109,9 @@ Select the measurements to build an interaction graph/hypergraph from, and the
 vertex count to size it over.
 
 `qubits` picks the vertex rows (`:all` every register qubit, `:data` the data
-qubits plus one collapsed magic lane, `:magic` the magic-state block alone,
-re-indexed from 1); `:data`/`:magic` require `n_input` (the data-qubit count),
-since `CompilationResult` does not record the data/magic split. A measurement
+qubits alone, `:magic` the magic-state block alone -- both re-indexed from 1);
+`:data`/`:magic` require `n_input` (the data-qubit count), since
+`CompilationResult` does not record the data/magic split. A measurement
 becomes an edge/hyperedge only if its Pauli has support in the selected rows.
 
 The register width used to size and bound this is `max(size(stabilizer_group,
@@ -132,8 +136,8 @@ selection -- see [`get_hypergraph`](@ref) for the precise difference.
 
 Returns `(measurements, num_vertices, row_of, register_n)`: `row_of` must be
 used to map each measurement's raw (full-register) qubit indices to vertex
-rows before building edges/hyperedges, since `:data`/`:magic` renumber and
-collapse qubits rather than using them directly.
+rows before building edges/hyperedges, since `:data`/`:magic` renumber
+qubits rather than using them directly.
 
 Shared by `get_graph` and `get_hypergraph`.
 """
@@ -160,7 +164,7 @@ end
 Extract the qubit interaction graph from a `CompilationResult`.
 
 `qubits` selects which qubits become vertices: `:all` (default) every register
-qubit, `:data` the data qubits plus one collapsed magic lane, `:magic` the
+qubit, `:data` the data qubits alone, `:magic` the
 magic-state block alone (re-indexed from 1). `:data`/`:magic` require
 `n_input`, the number of data qubits, since `CompilationResult` does not
 record the data/magic split. A measurement becomes an edge only if its Pauli
@@ -287,7 +291,7 @@ end
 Extract the qubit interaction hypergraph from a `CompilationResult`.
 
 `qubits` selects which qubits become vertices: `:all` (default) every register
-qubit, `:data` the data qubits plus one collapsed magic lane, `:magic` the
+qubit, `:data` the data qubits alone, `:magic` the
 magic-state block alone (re-indexed from 1). `:data`/`:magic` require
 `n_input`, the number of data qubits, since `CompilationResult` does not
 record the data/magic split. A measurement becomes a hyperedge only if its
@@ -338,9 +342,7 @@ function get_hypergraph(result::CompilationResult;
 end
 
 """
-Vertex rows `p`'s support maps to under `row_of`, sorted and deduplicated
-(qubits mapping to the same row -- e.g. the collapsed `:data`-view magic lane
--- contribute one vertex, not one per qubit).
+Vertex rows `p`'s support maps to under `row_of`, sorted and deduplicated.
 """
 function _qubit_coverage(p::PauliOperator, row_of, register_n::Int)
     bool_vec = [p[i] for i in 1:min(Int(nqubits(p)), register_n)]
