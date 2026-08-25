@@ -87,8 +87,19 @@ copy:
 
 ```julia
 compiled = build_compilerstate(circuit, SimRuntime())
-shots = [execute!(copy(compiled)) for _ in 1:1000]
+shots = map(1:1000) do _
+    s = copy(compiled)
+    while !PBCCompiler._execution_complete(s)
+        s = execute!(s)
+    end
+    s
+end
 ```
+
+`execute!` performs one measurement step per call (a no-op once every
+measurement is done), so driving a shot to completion means looping it as
+above. `s.circuit` itself never shrinks -- looping on `!isempty(s.circuit)`
+instead of the measurement-completion check spins forever.
 
 `get_distribution` and `weight_std_graph` already do this.
 

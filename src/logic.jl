@@ -211,6 +211,16 @@ function to_result(state::CompilerState{<:AbstractStabilizerRuntime})
 end
 
 """
+Whether every measurement in `state.circuit` has already been performed --
+the shared stopping condition for [`run`](@ref)/[`execute!`](@ref) and for any
+caller driving `execute!` to completion by hand. Bounding by both the
+measurement count and the result-vector length prevents out-of-bounds access
+when bit indices and measurement counts disagree.
+"""
+_execution_complete(state::CompilerState) =
+    state.instruction_pointer > min(length(find_variant_indices(state.circuit, Measurement)), length(state.measurement_results))
+
+"""
     run(input_circuit::Circuit, rt::AbstractRuntime, input_state::Union{Stabilizer, Nothing}=nothing) -> CompilerState
 
 Compute/compile the provided circuit against an input state (described by a stabilizer
@@ -226,12 +236,8 @@ This function is not exported because it shadows `Base.run`; call it as
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
     state = build_compilerstate(input_circuit, rt, input_state)
-    while !isempty(state.circuit)
-        if state.instruction_pointer <=  length(state.measurement_results)
-            state = execute!(state)
-        else
-            break
-        end
+    while !_execution_complete(state)
+        state = execute!(state)
     end
     return state
 end
@@ -239,21 +245,29 @@ end
 """
     execute!(state::CompilerState) -> CompilerState
 
-Perform every remaining measurement of an already-compiled `CompilerState` and
-return the final state.
+Perform the next remaining measurement step of an already-compiled
+`CompilerState` and return the updated state. A no-op (returns `state`
+unchanged) once every measurement has been performed.
 
 `state` is consumed: its tableau, circuit and registers are updated in place.
 To run several shots off one compilation, pass a `copy` of the compiled state
-on each shot.
+on each shot, looping `execute!` until the shot is complete.
 
 # Examples
 ```julia
 compiled = build_compilerstate(circuit, SimRuntime())
-shots = [execute!(copy(compiled)) for _ in 1:100]
+shots = map(1:100) do _
+    s = copy(compiled)
+    while !PBCCompiler._execution_complete(s)
+        s = execute!(s)
+    end
+    s
+end
 ```
 """
 function execute!(state::CompilerState)
     resolve_conditionals(state)
+    _execution_complete(state) && return state
     meas_list = find_variant_indices(state.circuit, Measurement)
     state=do_quantum_step(state, meas_list)
     return state

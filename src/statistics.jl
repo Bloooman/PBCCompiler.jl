@@ -20,7 +20,10 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
     # so it is done once and each shot runs off a copy of the compiled state
     compiled = build_compilerstate(input_circuit, rt, input_state)
     for i in 1:num_shots
-        result_i=execute!(copy(compiled))
+        result_i=copy(compiled)
+        while !_execution_complete(result_i)
+            result_i=execute!(result_i)
+        end
         register=result_i.classical_register
         final_measurement_results=register[1:num_bits]
         any(isnothing, final_measurement_results) &&
@@ -267,7 +270,10 @@ function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stab
     # See `get_distribution`: compile once, run each shot off a copy
     compiled = build_compilerstate(input_circuit, rt, input_state)
     for i in 1:num_shots
-        state_i=execute!(copy(compiled))
+        state_i=copy(compiled)
+        while !_execution_complete(state_i)
+            state_i=execute!(state_i)
+        end
         graphs[i]=get_graph(to_result(state_i); qubits, n_input, variant)
     end
     n = nv(first(graphs))

@@ -6,7 +6,7 @@ using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQu
     validate_CircuitOp, PauliQubitMismatchError, find_variant_indices, group_nonclifford,
     quantum_measurement, resolve_conditionals, get_distribution, get_graph,
     weight_std_graph, to_result, num_gadget_qubits, run, CompilerState, CompilationResult, MeasurementResult,
-    SimRuntime, DummyRuntime, StabilizerRuntime, DummyStabilizerRuntime
+    SimRuntime, DummyRuntime, StabilizerRuntime, DummyStabilizerRuntime, execute!, build_compilerstate
 using .MeasurementResult: ClassicalDetermRes
 using QuantumClifford: @P_str, @S_str, MixedDestabilizer, nqubits, Stabilizer
 using Moshi.Derive: @derive
@@ -388,6 +388,36 @@ end
     (distribution, data) = get_distribution(Circuit(), DummyRuntime(), nothing, 3)
     @test distribution == [3]
     @test data == [0, 0, 0]
+end
+
+@testset "execute! is a no-op once the circuit is exhausted" begin
+    # execute! performs one measurement step per call; calling it again after
+    # every measurement is done (or on a circuit with no measurements at all)
+    # used to throw BoundsError instead of being a safe no-op.
+    circuit = Circuit([Measurement(P"Z", 1, [1])])
+    compiled = build_compilerstate(circuit, DummyRuntime())
+    once = execute!(copy(compiled))
+    again = execute!(copy(once))
+    @test again.classical_register == once.classical_register
+    @test again.instruction_pointer == once.instruction_pointer
+
+    empty_compiled = build_compilerstate(Circuit(), DummyRuntime())
+    stepped = execute!(copy(empty_compiled))
+    @test stepped.classical_register == empty_compiled.classical_register
+    @test stepped.instruction_pointer == empty_compiled.instruction_pointer
+end
+
+@testset "weight_std_graph matches per-shot compilation on multi-measurement circuits" begin
+    # execute! only performing one measurement step used to leave later bits
+    # unmeasured after a single call, silently corrupting weight_std_graph's
+    # per-shot graphs on any circuit needing more than one measurement.
+    circuit = Circuit([
+        ExpEighPiPauli(P"XY", [1, 2]),
+        Measurement(P"Z", 1, [1]),
+        Measurement(P"Z", 2, [2]),
+    ])
+    g = weight_std_graph(circuit, SimRuntime(), nothing; num_shots=20)
+    @test nv(g) > 0
 end
 
 @testset "StabilizerRuntime on circuits that compile to no gadgets" begin

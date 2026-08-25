@@ -182,7 +182,14 @@ end
     # after the first would be forced onto one branch.
     compiled = build_compilerstate(copy(circuit), SimRuntime(), nothing)
     seed!(31)
-    outcomes = [execute!(copy(compiled)).classical_register[1:2] for _ in 1:60]
+    function run_shot(compiled)
+        s = copy(compiled)
+        while !PBCCompiler._execution_complete(s)
+            s = execute!(s)
+        end
+        return s.classical_register[1:2]
+    end
+    outcomes = [run_shot(compiled) for _ in 1:60]
     @test !allequal(outcomes)
     # The compiled state itself is untouched: nothing measured yet.
     @test all(isnothing, compiled.classical_register)
