@@ -127,11 +127,13 @@ abstract type AbstractStabilizerRuntime <: AbstractRuntime end
 Runtime that simulates the full register — data qubits and magic qubits together —
 with QuantumClifford's `GeneralizedStabilizer`.
 
-Unlike [`SimRuntime`](@ref), which simulates only the magic register and resolves
-outcomes that anticommute with the stabilizer group by splicing compensating
-rotations into the circuit, this runtime performs an actual quantum measurement
-for every non-deterministic outcome. It therefore never produces a
-`ClassicalRandomRes` — every non-deterministic outcome is recorded as a
+Unlike [`SimRuntime`](@ref) — whose `quantum_memory` is the same full-width
+register, but whose data-qubit part sits inert and unmeasured (the sign of the
+data part is instead read off `state.stabilizer_group`) — this runtime
+performs an actual quantum measurement for every non-deterministic outcome,
+and resolves an anticommuting stabilizer row by projecting rather than by
+splicing compensating rotations into the circuit. It therefore never produces
+a `ClassicalRandomRes` — every non-deterministic outcome is recorded as a
 `QuantumRes`.
 
 That is the intended design, not a defect. The consequence is that

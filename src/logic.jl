@@ -82,14 +82,22 @@ allocate one magic-state qubit per gadget; gadgetization appends its magic
 qubits above the input width, so the gadget count is the width difference.
 """
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::SimRuntime)
+    num_qubits = get_circuit_width(preprocessed)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
-    quantum_memory = num_gadgets==0 ? nothing : create_magic_state(num_gadgets)
+    input = make_stabilizer_list(input_state, preprocessed)
+    generators = one(Stabilizer, num_qubits; basis=:X)
+    state = Stabilizer(generators)
+    state[1:num_input_qubits] = input
+    quantum_memory = GeneralizedStabilizer(state)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
-    @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
-    # Fresh vector, not `empty!`: callers reuse one runtime across shots, and
-    # appending into the caller's own vector would concatenate every shot's
-    # telemetry into one series
+    # Unlike SimRuntime -- which allocates no magic register at all when there
+    # are no gadgets, so `nothing` is the honest value there -- this runtime
+    # always holds the full register. An empty BitVector keeps
+    # `num_input_qubits = num_qubits - length(activated)` correct on gadget-free
+    # circuits instead of throwing `MethodError: length(::Nothing)`
+    @reset rt.activated = falses(num_gadgets)
+    # See the SimRuntime method: fresh vector so shots do not concatenate
     @reset rt.invsparsity_history = Int[]
     return rt
 end
@@ -190,7 +198,7 @@ holds -- the trailing block of the register, above the data qubits.
 `SimRuntime`/`DummyRuntime` do not need this: the generic `to_result` derives
 its magic block from the `QuantumRes` count rather than from `activated`.
 """
-num_gadget_qubits(rt::AbstractStabilizerRuntime) =
+num_gadget_qubits(rt::AbstractRuntime) =
     rt.activated === nothing ? 0 : length(rt.activated)
 
 function to_result(state::CompilerState{<:AbstractStabilizerRuntime})

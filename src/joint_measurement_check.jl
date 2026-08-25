@@ -252,15 +252,19 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
     end
-    magicqubits = num_qubits-length(quantum_state.stab)+1:num_qubits
+    num_input_qubits = num_qubits - num_gadget_qubits(rt)
     # op.pauli is indexed by position within op.qubits; embed it to the full
     # register before slicing by absolute qubit indices (out-of-bounds
     # PauliOperator indexing silently yields identity instead of throwing)
-    real_p=embed(num_qubits, op.qubits, op.pauli)[magicqubits]
-    num_magic = length(real_p)
+    real_p=embed(num_qubits, op.qubits, op.pauli)
+    for i in 1:num_input_qubits
+        real_p[i] = (false, false)
+    end
+    num_magic = num_gadget_qubits(rt)
     # The activation bit stays set after the qubit collapses back to a
     # stabilizer state — reapplying T there would be wrong
-    _activate_and_apply_T!(quantum_state, rt.activated, real_p, 0, 1:num_magic, num_magic, 0)
+    candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
+    _activate_and_apply_T!(quantum_state, rt.activated, real_p, num_input_qubits, candidates, num_qubits, num_input_qubits)
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)
     append!(rt.invsparsity_history,invsparsity(quantum_state))
@@ -306,7 +310,7 @@ slice inside `quantum_measurement`. Runtimes without a magic-state memory
 function data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int)
     memory = state.runtime.quantum_memory
     memory === nothing && return false
-    num_data = num_qubits - length(memory.stab)
+    num_data = num_qubits - num_gadget_qubits(state.runtime)
     data_p = embed(num_qubits, op.qubits, op.pauli)[1:num_data]
     data_p.phase[] = 0x00
     any(i -> let (x, z) = data_p[i]; x || z end, 1:num_data) || return false
