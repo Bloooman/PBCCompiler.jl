@@ -225,7 +225,15 @@ This function is not exported because it shadows `Base.run`; call it as
 - `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
-    execute!(build_compilerstate(input_circuit, rt, input_state))
+    state = build_compilerstate(input_circuit, rt, input_state)
+    while !isempty(state.circuit)
+        if state.instruction_pointer <=  length(state.measurement_results)
+            state = execute!(state)
+        else
+            break
+        end
+    end
+    return state
 end
 
 """
@@ -245,16 +253,8 @@ shots = [execute!(copy(compiled)) for _ in 1:100]
 ```
 """
 function execute!(state::CompilerState)
-    while !isempty(state.circuit)
-        resolve_conditionals(state)
-        # Stop once every measurement has been performed; bounding by both the
-        # measurement count and the result-vector length prevents out-of-bounds
-        # access when bit indices and measurement counts disagree
-        meas_list = find_variant_indices(state.circuit, Measurement)
-        if state.instruction_pointer > min(length(meas_list), length(state.measurement_results))
-            break
-        end
-        state=do_quantum_step(state, meas_list)
-    end
+    resolve_conditionals(state)
+    meas_list = find_variant_indices(state.circuit, Measurement)
+    state=do_quantum_step(state, meas_list)
     return state
 end
