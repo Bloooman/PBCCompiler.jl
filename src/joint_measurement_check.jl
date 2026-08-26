@@ -272,7 +272,7 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     return (rt, result)
 end
 
-function quantum_measurement(rt::StabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
+function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S<:AbstractStabilizerRuntime
     # Guard first: reading `rt.activated` before this made the error unreachable
     quantum_state = rt.quantum_memory
     if quantum_state === nothing

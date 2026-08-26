@@ -222,30 +222,56 @@ end
 ##
 end
 
-@testitem "HybridRuntime converts into StabilizerRuntime at its threshold" tags=[:runtime] begin
+@testitem "HybridRuntime converts into HybridStabilizerRuntime at its threshold" tags=[:runtime] begin
 ##
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, HybridRuntime, StabilizerRuntime
-using QuantumClifford: @P_str
+using PBCCompiler: Circuit, CircuitOp, HybridRuntime, HybridStabilizerRuntime,
+    SimRuntime, StabilizerRuntime, to_result, num_gadget_qubits
+using QuantumClifford: @P_str, nqubits
+using Random: seed!
 
-# Two independent pi/8 rotations -> two magic-state gadgets, so a threshold of
-# 1 is crossed partway through the run rather than on the very first or last step.
-two_gadget_circuit = Circuit(CircuitOp.Type[
+# Three independent pi/8 rotations -> three magic-state gadgets, so a
+# threshold of 2 is crossed partway through the run (one gadget resolves
+# pre-transition, two post-transition) rather than on the very first or last step.
+three_gadget_circuit = Circuit(CircuitOp.Type[
     CircuitOp.ExpEighPiPauli(P"Z", [1]),
     CircuitOp.ExpEighPiPauli(P"Z", [2]),
+    CircuitOp.ExpEighPiPauli(P"Z", [3]),
     CircuitOp.Measurement(P"Z", 1, [1]),
     CircuitOp.Measurement(P"Z", 2, [2]),
+    CircuitOp.Measurement(P"Z", 3, [3]),
 ])
 
-@testset "converts once maximum_measurement_support activated qubits are reached" begin
-    result = PBCCompiler.run(copy(two_gadget_circuit), HybridRuntime(1), nothing)
-    @test result.runtime isa StabilizerRuntime
+@testset "converts once total qubit support reaches the threshold" begin
+    result = PBCCompiler.run(copy(three_gadget_circuit), HybridRuntime(2), nothing)
+    @test result.runtime isa HybridStabilizerRuntime
     @test count(result.runtime.activated) >= 1
+
+    out = to_result(result)
+    num_input_qubits = nqubits(result.stabilizer_group) - num_gadget_qubits(result.runtime)
+    expected_width = num_input_qubits + count(result.runtime.activated_at_transition)
+    @test nqubits(out.stabilizer_group) == expected_width
+    # activated_at_transition is a snapshot: it must not grow as `activated`
+    # keeps being mutated for the rest of the run after conversion.
+    @test count(result.runtime.activated_at_transition) <= count(result.runtime.activated)
+    @test out.QPUDuration == length(out.QPU_workload)
 end
 
 @testset "never converts when maximum_measurement_support is nothing" begin
-    result = PBCCompiler.run(copy(two_gadget_circuit), HybridRuntime(), nothing)
+    seed!(1)
+    result = PBCCompiler.run(copy(three_gadget_circuit), HybridRuntime(), nothing)
     @test result.runtime isa HybridRuntime
+
+    # Regression check: a HybridRuntime that never converts must keep using
+    # the generic to_result method, unaffected by the new dispatch. Seed both
+    # runs identically so their random outcomes (and therefore QPU_workload)
+    # line up.
+    hybrid_out = to_result(result)
+    seed!(1)
+    sim_result = PBCCompiler.run(copy(three_gadget_circuit), SimRuntime(), nothing)
+    sim_out = to_result(sim_result)
+    @test nqubits(hybrid_out.stabilizer_group) == nqubits(sim_out.stabilizer_group)
+    @test length(hybrid_out.QPU_workload) == length(sim_out.QPU_workload)
 end
 ##
 end

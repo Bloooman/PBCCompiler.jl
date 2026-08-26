@@ -124,11 +124,12 @@ function transition(state::CompilerState{<:HybridRuntime})
      (isnothing(max) || isnothing(rt.activated)) && return state
      num_input_qubits = nqubits(state.stabilizer_group) - num_gadget_qubits(rt)
      count(rt.activated) < max - num_input_qubits && return state
-     @reset state.runtime = StabilizerRuntime(rt.quantum_memory, rt.activated, rt.invsparsity_history)
+     n_measurements = count(i -> isassigned(state.measurement_results, i), 1:length(state.measurement_results))
+     @reset state.runtime = HybridStabilizerRuntime(rt.quantum_memory, rt.activated, rt.invsparsity_history, copy(rt.activated), n_measurements)
      return state
 end
 
-function transition(state::CompilerState{<:StabilizerRuntime})
+function transition(state::CompilerState{<:AbstractStabilizerRuntime})
     return state
 end
 
@@ -153,13 +154,13 @@ function do_quantum_step(state::CompilerState, meas_list::Vector{Int}=find_varia
     @reset state.instruction_pointer = i+1
 end
 
-function to_result(state::CompilerState)
-    num_qubits = nqubits(state.stabilizer_group)
-    meas_result = state.measurement_results
-    assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
-    quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
-    magicqubits = num_qubits - length(quantum) + 1 : num_qubits
-
+"""
+Restrict each `QuantumRes` in `quantum` to the qubits in `magicqubits`, folding
+away any magic qubit whose Pauli support is fully accounted for by an earlier
+entry in the list (a joint measurement whose only remaining non-identity
+support is one already-resolved magic qubit needs no further QPU operation).
+"""
+function _magic_block_qpu_load(quantum, magicqubits)
     excluded_local = Set{Int}()
     qpu_load = Vector{MeasurementResult.Type}()
 
@@ -175,6 +176,16 @@ function to_result(state::CompilerState)
             push!(qpu_load, QuantumRes(magic_p, mr.result))
         end
     end
+    return qpu_load
+end
+
+function to_result(state::CompilerState)
+    num_qubits = nqubits(state.stabilizer_group)
+    meas_result = state.measurement_results
+    assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
+    quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
+    magicqubits = num_qubits - length(quantum) + 1 : num_qubits
+    qpu_load = _magic_block_qpu_load(quantum, magicqubits)
 
     # CompilationResult keeps the plain Stabilizer representation (stable
     # serialization format); extract it from the working tableau
@@ -182,7 +193,7 @@ function to_result(state::CompilerState)
 end
 
 """
-Number of magic-state (gadget) qubits a `StabilizerRuntime`/`DummyStabilizerRuntime`
+Number of magic-state (gadget) qubits a `StabilizerRuntime`/`DummyStabilizerRuntime`/`HybridStabilizerRuntime`
 holds -- the trailing block of the register, above the data qubits.
 
 `activated` is `nothing` on a state from [`_empty_state`](@ref), which never runs
@@ -209,6 +220,44 @@ function to_result(state::CompilerState{<:AbstractStabilizerRuntime})
     # CompilationResult keeps the plain Stabilizer representation (stable
     # serialization format); extract it from the working tableau
     CompilationResult(state.measurement_results, quantum, s_clean, length(quantum))
+end
+
+"""
+`to_result` for a `HybridRuntime` that converted mid-run. Measurements taken
+before the transition were `SimRuntime`-style: only their magic-qubit support
+is real QPU work (the data part was already resolved classically), so those
+`QuantumRes` entries go through the same magic-block restriction the generic
+`to_result` applies. Measurements taken after the transition were genuine
+whole-register `StabilizerRuntime` projections, so they're kept as-is, same
+as the plain `AbstractStabilizerRuntime` method. The result tableau keeps the
+data qubits plus whichever magic qubits were already live in `quantum_memory`
+at the transition point ([`HybridStabilizerRuntime.activated_at_transition`](@ref)) --
+magic qubits only touched after the transition are pure `StabilizerRuntime`
+territory and don't carry the same "live quantum resource" meaning.
+"""
+function to_result(state::CompilerState{<:HybridStabilizerRuntime})
+    rt = state.runtime
+    num_qubits = nqubits(state.stabilizer_group)
+    meas_result = state.measurement_results
+    assigned_idx = [i for i in 1:length(meas_result) if isassigned(meas_result, i)]
+    num_input_qubits = num_qubits - num_gadget_qubits(rt)
+
+    pre_idx = filter(i -> i <= rt.n_measurements_at_transition, assigned_idx)
+    post_idx = filter(i -> i > rt.n_measurements_at_transition, assigned_idx)
+    pre_quantum = filter(mr -> isa_variant(mr, QuantumRes), meas_result[pre_idx])
+    post_quantum = filter(mr -> isa_variant(mr, QuantumRes), meas_result[post_idx])
+
+    magicqubits = num_input_qubits+1:num_qubits
+    qpu_load = vcat(_magic_block_qpu_load(pre_quantum, magicqubits), post_quantum)
+
+    keep_qubits = vcat(1:num_input_qubits, num_input_qubits .+ findall(rt.activated_at_transition))
+    s_sub = stabilizerview(state.stabilizer_group)[:, keep_qubits]
+    non_trivial_rows = [i for i in 1:length(s_sub) if !iszero(s_sub[i].xz)]
+    s_clean = s_sub[non_trivial_rows]
+
+    # CompilationResult keeps the plain Stabilizer representation (stable
+    # serialization format); extract it from the working tableau
+    CompilationResult(state.measurement_results, qpu_load, s_clean, length(qpu_load))
 end
 
 """

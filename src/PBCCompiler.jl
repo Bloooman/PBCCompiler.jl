@@ -3,7 +3,7 @@ module PBCCompiler
 # `run` and `to_result` are deliberately not exported: `run` would shadow
 # `Base.run` for downstream users; call them qualified as `PBCCompiler.run`.
 export Circuit, CircuitOp, MeasurementResult,
-    AbstractRuntime, SimRuntime, StabilizerRuntime, DummyRuntime, DummyStabilizerRuntime, HybridRuntime, TraversalRuntime,
+    AbstractRuntime, SimRuntime, StabilizerRuntime, DummyRuntime, DummyStabilizerRuntime, HybridRuntime, HybridStabilizerRuntime, TraversalRuntime,
     CompilerState, CompilationResult,
     preprocess_circuit, traversal, affectedqubits,
     parse_input, save_result, load_result,
