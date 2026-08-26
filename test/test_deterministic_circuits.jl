@@ -8,7 +8,7 @@
 # the measured (-1)^result sign or the target bit flips on random shots.
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, ExpHalfPiPauli, parse_input, SimRuntime, StabilizerRuntime
+using PBCCompiler: Circuit, CircuitOp, ExpHalfPiPauli, parse_input, SimRuntime, StabilizerRuntime, HybridRuntime
 using Moshi.Data: isa_variant
 using QuantumClifford: @P_str, Stabilizer, single_z
 
@@ -39,7 +39,9 @@ end
 
 # Runtimes that simulate the magic register rather than coining outcomes: a
 # deterministic circuit must come out deterministic under each, on every shot.
-const SIMULATING_RUNTIMES = (SimRuntime, StabilizerRuntime)
+# HybridRuntime's default constructor never crosses its (nothing) conversion
+# threshold, so it behaves exactly like SimRuntime for the whole run.
+const SIMULATING_RUNTIMES = (SimRuntime, StabilizerRuntime, HybridRuntime)
 
 # DummyRuntime is excluded on purpose: it coins every quantum outcome at a fixed
 # bias, but later gadget measurements have true conditional probabilities other

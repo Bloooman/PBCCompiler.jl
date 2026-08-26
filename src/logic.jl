@@ -238,7 +238,7 @@ This function is not exported because it shadows `Base.run`; call it as
 
 # Arguments
 - `input_circuit`: input circuit for compilation
-- `rt`: runtime that supplies measurement outcomes (`SimRuntime`, `DummyRuntime`, `TraversalRuntime`)
+- `rt`: runtime that supplies measurement outcomes (`SimRuntime`, `StabilizerRuntime`, `DummyRuntime`, `DummyStabilizerRuntime`, `HybridRuntime`, `TraversalRuntime`)
 - `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime

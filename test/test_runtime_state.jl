@@ -2,7 +2,8 @@
 ##
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpEighPiPauli, SimRuntime,
-    DummyRuntime, DummyStabilizerRuntime, build_compilerstate, do_quantum_step
+    DummyRuntime, DummyStabilizerRuntime, HybridRuntime, StabilizerRuntime,
+    build_compilerstate, do_quantum_step
 using QuantumClifford: @P_str
 
 # One pi/8 rotation -> one magic-state gadget, so the runtime carries a
@@ -64,6 +65,29 @@ end
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
     @test !any(state.runtime.activated)
+end
+
+@testset "copy does not alias magic-state memory for HybridRuntime" begin
+    state = build_compilerstate(gadget_circuit(), HybridRuntime(), nothing)
+    @test state.runtime.quantum_memory !== nothing
+    @test !any(state.runtime.activated)
+
+    original_chi = length(state.runtime.quantum_memory.destabweights)
+
+    other = copy(state)
+    @test other.runtime !== state.runtime
+    @test other.runtime.quantum_memory !== state.runtime.quantum_memory
+    @test other.runtime.activated !== state.runtime.activated
+    @test other.runtime.invsparsity_history !== state.runtime.invsparsity_history
+
+    other = do_quantum_step(other)
+    @test any(other.runtime.activated)
+
+    # Before HybridRuntime was added to `_RuntimeWithMutableFields`, `copy`
+    # fell through to the identity fallback and this state was shared.
+    @test !any(state.runtime.activated)
+    @test isempty(state.runtime.invsparsity_history)
+    @test length(state.runtime.quantum_memory.destabweights) == original_chi
 end
 
 @testset "copy leaves the tableau and circuit independent" begin
@@ -194,6 +218,34 @@ end
     # The compiled state itself is untouched: nothing measured yet.
     @test all(isnothing, compiled.classical_register)
     @test !any(compiled.runtime.activated)
+end
+##
+end
+
+@testitem "HybridRuntime converts into StabilizerRuntime at its threshold" tags=[:runtime] begin
+##
+using PBCCompiler
+using PBCCompiler: Circuit, CircuitOp, HybridRuntime, StabilizerRuntime
+using QuantumClifford: @P_str
+
+# Two independent pi/8 rotations -> two magic-state gadgets, so a threshold of
+# 1 is crossed partway through the run rather than on the very first or last step.
+two_gadget_circuit = Circuit(CircuitOp.Type[
+    CircuitOp.ExpEighPiPauli(P"Z", [1]),
+    CircuitOp.ExpEighPiPauli(P"Z", [2]),
+    CircuitOp.Measurement(P"Z", 1, [1]),
+    CircuitOp.Measurement(P"Z", 2, [2]),
+])
+
+@testset "converts once maximum_measurement_support activated qubits are reached" begin
+    result = PBCCompiler.run(copy(two_gadget_circuit), HybridRuntime(1), nothing)
+    @test result.runtime isa StabilizerRuntime
+    @test count(result.runtime.activated) >= 1
+end
+
+@testset "never converts when maximum_measurement_support is nothing" begin
+    result = PBCCompiler.run(copy(two_gadget_circuit), HybridRuntime(), nothing)
+    @test result.runtime isa HybridRuntime
 end
 ##
 end

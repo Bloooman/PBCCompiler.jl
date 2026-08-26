@@ -379,7 +379,7 @@ end
 
 @testset "StabilizerRuntime is exported alongside the other runtimes" begin
     exported = names(PBCCompiler)
-    for rt in (:SimRuntime, :StabilizerRuntime, :DummyRuntime, :DummyStabilizerRuntime, :TraversalRuntime)
+    for rt in (:SimRuntime, :StabilizerRuntime, :DummyRuntime, :DummyStabilizerRuntime, :HybridRuntime, :TraversalRuntime)
         @test rt in exported
     end
 end
