@@ -119,19 +119,13 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
 end
 
 function transition(state::CompilerState{<:HybridRuntime})
-    rt = state.runtime
-    max = rt.maximum_measurement_support
-    if !isnothing(max) && !isnothing(rt.activated)
-        if count(==(1), rt.activated)>=max
-            rt = StabilizerRuntime(rt.quantum_memory, rt.activated, rt.invsparsity_history)
-            @reset state.runtime = rt
-            return state
-        else
-            return state
-        end
-    else
-        return state
-    end
+     rt = state.runtime
+     max = rt.maximum_measurement_support
+     (isnothing(max) || isnothing(rt.activated)) && return state
+     num_input_qubits = nqubits(state.stabilizer_group) - num_gadget_qubits(rt)
+     count(rt.activated) < max - num_input_qubits && return state
+     @reset state.runtime = StabilizerRuntime(rt.quantum_memory, rt.activated, rt.invsparsity_history)
+     return state
 end
 
 function transition(state::CompilerState{<:StabilizerRuntime})
