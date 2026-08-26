@@ -81,28 +81,7 @@ Build the runtime data from an already-preprocessed circuit. For `SimRuntime`,
 allocate one magic-state qubit per gadget; gadgetization appends its magic
 qubits above the input width, so the gadget count is the width difference.
 """
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::SimRuntime)
-    num_qubits = get_circuit_width(preprocessed)
-    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
-    input = make_stabilizer_list(input_state, preprocessed)
-    generators = one(Stabilizer, num_qubits; basis=:X)
-    state = Stabilizer(generators)
-    state[1:num_input_qubits] = input
-    quantum_memory = GeneralizedStabilizer(state)
-    @debug "Number of gadgets inserted" num_gadgets _group=:api
-    @reset rt.quantum_memory=quantum_memory
-    # Unlike SimRuntime -- which allocates no magic register at all when there
-    # are no gadgets, so `nothing` is the honest value there -- this runtime
-    # always holds the full register. An empty BitVector keeps
-    # `num_input_qubits = num_qubits - length(activated)` correct on gadget-free
-    # circuits instead of throwing `MethodError: length(::Nothing)`
-    @reset rt.activated = falses(num_gadgets)
-    # See the SimRuntime method: fresh vector so shots do not concatenate
-    @reset rt.invsparsity_history = Int[]
-    return rt
-end
-
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::StabilizerRuntime)
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::Union{SimRuntime, StabilizerRuntime, HybridRuntime})
     num_qubits = get_circuit_width(preprocessed)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     input = make_stabilizer_list(input_state, preprocessed)
@@ -137,6 +116,26 @@ end
 
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::R) where R<:AbstractRuntime
     return rt
+end
+
+function transition(state::CompilerState{<:HybridRuntime})
+    rt = state.runtime
+    max = rt.maximum_measurement_support
+    if !isnothing(max) && !isnothing(rt.activated)
+        if count(==(1), rt.activated)>=max
+            rt = StabilizerRuntime(rt.quantum_memory, rt.activated, rt.invsparsity_history)
+            @reset state.runtime = rt
+            return state
+        else
+            return state
+        end
+    else
+        return state
+    end
+end
+
+function transition(state::CompilerState{<:StabilizerRuntime})
+    return state
 end
 
 """
@@ -246,6 +245,15 @@ function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothi
     state = build_compilerstate(input_circuit, rt, input_state)
     while !_execution_complete(state)
         state = execute!(state)
+    end
+    return state
+end
+
+function run(input_circuit::Circuit, rt::HybridRuntime, input_state::Union{Stabilizer, Nothing}=nothing)
+    state = build_compilerstate(input_circuit, rt, input_state)
+    while !_execution_complete(state)
+        state = execute!(state)
+        state = transition(state)
     end
     return state
 end

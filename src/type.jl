@@ -195,6 +195,16 @@ end
 DummyStabilizerRuntime() = DummyStabilizerRuntime(0.5, nothing)
 DummyStabilizerRuntime(p::Float64) = DummyStabilizerRuntime(p, nothing)
 
+struct HybridRuntime{Q} <: AbstractRuntime
+    quantum_memory::Q
+    activated::Union{BitVector, Nothing}
+    invsparsity_history::Vector{Int}
+    maximum_measurement_support::Union{Int, Nothing}
+end
+
+HybridRuntime() = HybridRuntime(nothing, nothing, Int[], nothing)
+HybridRuntime(m::Int64) = HybridRuntime(nothing, nothing, Int[], m)
+
 """Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
