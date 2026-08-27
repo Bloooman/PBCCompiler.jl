@@ -159,8 +159,14 @@ Restrict each `QuantumRes` in `quantum` to the qubits in `magicqubits`, folding
 away any magic qubit whose Pauli support is fully accounted for by an earlier
 entry in the list (a joint measurement whose only remaining non-identity
 support is one already-resolved magic qubit needs no further QPU operation).
+
+When `embed_width` is given, each kept entry's Pauli is placed back at that
+full register width (identity elsewhere) instead of returned restricted to
+`magicqubits` alone -- used by `to_result(::CompilerState{<:HybridStabilizerRuntime})`
+so every `QPU_workload` entry has the same width as the post-transition ones
+it's concatenated with.
 """
-function _magic_block_qpu_load(quantum, magicqubits)
+function _magic_block_qpu_load(quantum, magicqubits, embed_width::Union{Int,Nothing}=nothing)
     excluded_local = Set{Int}()
     qpu_load = Vector{MeasurementResult.Type}()
 
@@ -173,7 +179,8 @@ function _magic_block_qpu_load(quantum, magicqubits)
         if length(non_id) == 1
             push!(excluded_local, non_id[1])
         else
-            push!(qpu_load, QuantumRes(magic_p, mr.result))
+            p = embed_width === nothing ? magic_p : embed(embed_width, magicqubits, magic_p)
+            push!(qpu_load, QuantumRes(p, mr.result))
         end
     end
     return qpu_load
@@ -234,6 +241,12 @@ data qubits plus whichever magic qubits were already live in `quantum_memory`
 at the transition point ([`HybridStabilizerRuntime.activated_at_transition`](@ref)) --
 magic qubits only touched after the transition are pure `StabilizerRuntime`
 territory and don't carry the same "live quantum resource" meaning.
+
+Pre-transition entries are embedded back to full register width (identity on
+every qubit their restricted-and-locally-absorbed Pauli doesn't cover)
+instead of kept at the narrow magic-block width, so every entry in the
+returned `QPU_workload` has the same length as the post-transition ones it's
+concatenated with.
 """
 function to_result(state::CompilerState{<:HybridStabilizerRuntime})
     rt = state.runtime
@@ -248,7 +261,7 @@ function to_result(state::CompilerState{<:HybridStabilizerRuntime})
     post_quantum = filter(mr -> isa_variant(mr, QuantumRes), meas_result[post_idx])
 
     magicqubits = num_input_qubits+1:num_qubits
-    qpu_load = vcat(_magic_block_qpu_load(pre_quantum, magicqubits), post_quantum)
+    qpu_load = vcat(_magic_block_qpu_load(pre_quantum, magicqubits, num_qubits), post_quantum)
 
     keep_qubits = vcat(1:num_input_qubits, num_input_qubits .+ findall(rt.activated_at_transition))
     s_sub = stabilizerview(state.stabilizer_group)[:, keep_qubits]
