@@ -236,6 +236,10 @@ end
     remove_nonclifford(circuit::Circuit)->Nothing
 
 Replace every non-Clifford rotation with its magic-state gadget (see `gadgetize`).
+
+Magic qubits are numbered in the order their gadget is consumed at runtime --
+the earliest non-Clifford gate in the circuit gets magic qubit 1, and so on --
+so the register grows in temporal order as a circuit runs.
 """
 function remove_nonclifford(circuit::Circuit)
     indices=find_variant_indices(circuit,ExpEighPiPauli)
@@ -243,11 +247,15 @@ function remove_nonclifford(circuit::Circuit)
     # Allocate gadget bits above the highest bit already in use; using the qubit
     # count alone would collide with user bits whenever bit indices exceed it
     num_bit=max(get_bit_number(circuit), num_input_qubit)
-    num_magic_state=0
+    # Magic-qubit numbering is assigned by forward position (earliest gate ->
+    # smallest index) up front, independent of the splice loop below, which
+    # must run rightmost-first so replacing position `i` with a
+    # longer/shorter gadget never invalidates the not-yet-visited (smaller)
+    # indices still to come.
+    magic_state_number = Dict(idx => rank for (rank, idx) in enumerate(indices))
     for i in reverse(indices)
-        num_magic_state+=1
         op=circuit[i]
-        gadget = gadgetize(op, num_input_qubit, num_bit, num_magic_state)
+        gadget = gadgetize(op, num_input_qubit, num_bit, magic_state_number[i])
         splice!(circuit, i, gadget)
     end
 end
