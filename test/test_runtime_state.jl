@@ -227,6 +227,8 @@ end
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, HybridRuntime, HybridStabilizerRuntime,
     SimRuntime, StabilizerRuntime, to_result, num_gadget_qubits
+using PBCCompiler: MeasurementResult, _magic_block_qpu_load
+using .MeasurementResult: QuantumRes
 using QuantumClifford: @P_str, nqubits
 using Random: seed!
 
@@ -255,6 +257,23 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
     # keeps being mutated for the rest of the run after conversion.
     @test count(result.runtime.activated_at_transition) <= count(result.runtime.activated)
     @test out.QPUDuration == length(out.QPU_workload)
+
+    # Regression check for the pre/post-transition QPU_workload width
+    # mismatch. `three_gadget_circuit`'s own pre-transition measurement only
+    # ever touches one magic qubit, so `_magic_block_qpu_load` folds it away
+    # entirely and the natural run above never actually exercises the padding
+    # path. Force a pre-transition measurement with joint support on two
+    # magic qubits (so it survives folding) to confirm it still comes out at
+    # the same width as the post-transition entries, with the data-qubit
+    # segment (qubit 1) forced to identity rather than leaking its Z support.
+    num_qubits = nqubits(result.stabilizer_group)
+    @test num_qubits == 6   # 3 data qubits + 3 gadgets, per three_gadget_circuit above
+    padded_state = copy(result)
+    padded_state.measurement_results[1] = QuantumRes(P"Z__XZ_", true)
+    padded_out = to_result(padded_state)
+    @test all(nqubits(entry.pauli) == num_qubits for entry in padded_out.QPU_workload)
+    kept = padded_out.QPU_workload[1]
+    @test all(kept.pauli[i] == (false, false) for i in 1:num_input_qubits)
 end
 
 @testset "never converts when maximum_measurement_support is nothing" begin
@@ -272,6 +291,25 @@ end
     sim_out = to_result(sim_result)
     @test nqubits(hybrid_out.stabilizer_group) == nqubits(sim_out.stabilizer_group)
     @test length(hybrid_out.QPU_workload) == length(sim_out.QPU_workload)
+end
+
+@testset "_magic_block_qpu_load embed_width pads with identity on the complement" begin
+    magicqubits = 3:5
+    embed_width = 6
+    quantum = MeasurementResult.Type[
+        QuantumRes(P"IIXZII", true),
+        QuantumRes(P"IIIZYI", false),
+    ]
+    narrow = _magic_block_qpu_load(quantum, magicqubits)
+    padded = _magic_block_qpu_load(quantum, magicqubits, embed_width)
+
+    @test length(padded) == length(narrow)
+    @test all(nqubits(entry.pauli) == embed_width for entry in padded)
+    # Restricted back to magicqubits, padded entries agree with the narrow ones.
+    @test all(padded[i].pauli[magicqubits] == narrow[i].pauli for i in eachindex(narrow))
+    # The complement of magicqubits (the data-qubit segment) is identity.
+    complement = setdiff(1:embed_width, magicqubits)
+    @test all(entry.pauli[i] == (false, false) for entry in padded, i in complement)
 end
 ##
 end
