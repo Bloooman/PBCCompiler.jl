@@ -3,6 +3,7 @@
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpEighPiPauli, SimRuntime,
     DummyRuntime, DummyStabilizerRuntime, HybridRuntime, StabilizerRuntime,
+    DummyHybridRuntime, DummyHybridStabilizerRuntime,
     build_compilerstate, do_quantum_step
 using QuantumClifford: @P_str
 
@@ -88,6 +89,34 @@ end
     @test !any(state.runtime.activated)
     @test isempty(state.runtime.invsparsity_history)
     @test length(state.runtime.quantum_memory.destabweights) == original_chi
+end
+
+@testset "copy does not alias activated for DummyHybridRuntime" begin
+    state = build_compilerstate(gadget_circuit(), DummyHybridRuntime(), nothing)
+    @test !any(state.runtime.activated)
+
+    other = copy(state)
+    @test other.runtime !== state.runtime
+    @test other.runtime.activated !== state.runtime.activated
+
+    other = do_quantum_step(other)
+    @test any(other.runtime.activated)
+    @test !any(state.runtime.activated)
+end
+
+@testset "copy does not alias activated for DummyHybridStabilizerRuntime" begin
+    state = build_compilerstate(gadget_circuit(), DummyHybridRuntime(0), nothing)
+    other = PBCCompiler.transition(state)
+    @test other.runtime isa DummyHybridStabilizerRuntime
+    @test !any(other.runtime.activated)
+
+    copied = copy(other)
+    @test copied.runtime !== other.runtime
+    @test copied.runtime.activated !== other.runtime.activated
+
+    copied = do_quantum_step(copied)
+    @test any(copied.runtime.activated)
+    @test !any(other.runtime.activated)
 end
 
 @testset "copy leaves the tableau and circuit independent" begin
@@ -310,6 +339,60 @@ end
     # The complement of magicqubits (the data-qubit segment) is identity.
     complement = setdiff(1:embed_width, magicqubits)
     @test all(entry.pauli[i] == (false, false) for entry in padded, i in complement)
+end
+##
+end
+
+@testitem "DummyHybridRuntime converts into DummyHybridStabilizerRuntime at its threshold" tags=[:runtime] begin
+##
+using PBCCompiler
+using PBCCompiler: Circuit, CircuitOp, DummyHybridRuntime, DummyHybridStabilizerRuntime,
+    DummyRuntime, to_result, num_gadget_qubits
+using QuantumClifford: @P_str, nqubits
+using Random: seed!
+
+# Same shape as the HybridRuntime testitem: three independent pi/8 rotations
+# -> three magic-state gadgets, so a threshold of 2 is crossed partway through
+# the run rather than on the very first or last step.
+three_gadget_circuit = Circuit(CircuitOp.Type[
+    CircuitOp.ExpEighPiPauli(P"Z", [1]),
+    CircuitOp.ExpEighPiPauli(P"Z", [2]),
+    CircuitOp.ExpEighPiPauli(P"Z", [3]),
+    CircuitOp.Measurement(P"Z", 1, [1]),
+    CircuitOp.Measurement(P"Z", 2, [2]),
+    CircuitOp.Measurement(P"Z", 3, [3]),
+])
+
+@testset "converts once total qubit support reaches the threshold" begin
+    result = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(2), nothing)
+    @test result.runtime isa DummyHybridStabilizerRuntime
+    @test count(result.runtime.activated) >= 1
+
+    out = to_result(result)
+    num_input_qubits = nqubits(result.stabilizer_group) - num_gadget_qubits(result.runtime)
+    expected_width = num_input_qubits + count(result.runtime.activated_at_transition)
+    @test nqubits(out.stabilizer_group) == expected_width
+    # activated_at_transition is a snapshot: it must not grow as `activated`
+    # keeps being mutated for the rest of the run after conversion.
+    @test count(result.runtime.activated_at_transition) <= count(result.runtime.activated)
+    @test out.QPUDuration == length(out.QPU_workload)
+end
+
+@testset "never converts when maximum_measurement_support is nothing" begin
+    seed!(1)
+    result = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(), nothing)
+    @test result.runtime isa DummyHybridRuntime
+
+    # Regression check: a DummyHybridRuntime that never converts must keep
+    # using the generic to_result method, unaffected by the new dispatch.
+    # Seed both runs identically so their random outcomes (and therefore
+    # QPU_workload) line up.
+    hybrid_out = to_result(result)
+    seed!(1)
+    dummy_result = PBCCompiler.run(copy(three_gadget_circuit), DummyRuntime(), nothing)
+    dummy_out = to_result(dummy_result)
+    @test nqubits(hybrid_out.stabilizer_group) == nqubits(dummy_out.stabilizer_group)
+    @test length(hybrid_out.QPU_workload) == length(dummy_out.QPU_workload)
 end
 ##
 end

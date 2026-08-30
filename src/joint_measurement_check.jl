@@ -322,6 +322,7 @@ function data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubi
 end
 
 data_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
+data_part_eigenvalue(state::CompilerState{DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
     quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
@@ -343,6 +344,36 @@ end
 Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
 """
 function quantum_measurement(rt::DummyStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
+    if rt.activated !== nothing
+        num_input_qubits = num_qubits - length(rt.activated)
+        real_p = embed(num_qubits, op.qubits, op.pauli)
+        candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
+        _mark_activated!(rt.activated, real_p, num_input_qubits, candidates)
+    end
+    result = rand() < rt.p1_outcome_probs
+    return (rt, result)
+end
+
+"""
+    quantum_measurement(state::DummyHybridRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyHybridRuntime, Bool}
+Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
+"""
+function quantum_measurement(rt::DummyHybridRuntime, op::CircuitOp.Type, num_qubits::Int)
+    if rt.activated !== nothing
+        num_magic = length(rt.activated)
+        magicqubits = num_qubits-num_magic+1:num_qubits
+        real_p = embed(num_qubits, op.qubits, op.pauli)[magicqubits]
+        _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
+    end
+    result = rand() < rt.p1_outcome_probs
+    return (rt, result)
+end
+
+"""
+    quantum_measurement(state::DummyHybridStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyHybridStabilizerRuntime, Bool}
+Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
+"""
+function quantum_measurement(rt::DummyHybridStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
     if rt.activated !== nothing
         num_input_qubits = num_qubits - length(rt.activated)
         real_p = embed(num_qubits, op.qubits, op.pauli)

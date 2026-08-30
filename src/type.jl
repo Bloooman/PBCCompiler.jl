@@ -242,6 +242,44 @@ struct HybridStabilizerRuntime{Q} <: AbstractStabilizerRuntime
     n_measurements_at_transition::Int
 end
 
+"""
+Cheap stand-in for `HybridRuntime`: same conversion control flow (starts out
+coin-flipping like `DummyRuntime`, then converts in place into a
+`DummyHybridStabilizerRuntime` once total qubit support reaches
+`maximum_measurement_support`), but replaces the actual quantum measurement
+with a classical coin flip of a fixed bias instead of simulating the magic
+register. With `maximum_measurement_support = nothing` (the default) it never
+converts and behaves exactly like `DummyRuntime` for the whole run.
+"""
+struct DummyHybridRuntime <: AbstractRuntime
+    """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
+    p1_outcome_probs::Float64
+    """Magic qubits touched by a measurement so far, mirroring `HybridRuntime.activated`"""
+    activated::Union{BitVector, Nothing}
+    """Total qubit support (input qubits plus activated magic qubits) at which this runtime converts into a `DummyHybridStabilizerRuntime`; `nothing` means never convert"""
+    maximum_measurement_support::Union{Int, Nothing}
+end
+
+DummyHybridRuntime() = DummyHybridRuntime(0.5, nothing, nothing)
+DummyHybridRuntime(m::Int64) = DummyHybridRuntime(0.5, nothing, m)
+
+"""
+Runtime a `DummyHybridRuntime` converts into once it crosses its
+`maximum_measurement_support` threshold. Behaves exactly like
+`DummyStabilizerRuntime` from that point on, but remembers the transition
+snapshot [`to_result`](@ref) needs, mirroring `HybridStabilizerRuntime`.
+"""
+struct DummyHybridStabilizerRuntime <: AbstractStabilizerRuntime
+    """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
+    p1_outcome_probs::Float64
+    """Magic qubits touched by a measurement so far, mirroring `DummyStabilizerRuntime.activated`"""
+    activated::Union{BitVector, Nothing}
+    """`activated`, snapshotted at the moment of transition"""
+    activated_at_transition::BitVector
+    """Number of measurements resolved (bits assigned in `measurement_results`) at the moment of transition"""
+    n_measurements_at_transition::Int
+end
+
 """Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
@@ -285,9 +323,10 @@ through the original.
 
 `TraversalRuntime` holds only a probability, so it is returned as-is.
 `SimRuntime`, `StabilizerRuntime`, `DummyRuntime`, `DummyStabilizerRuntime`,
-`HybridRuntime`, and `HybridStabilizerRuntime` are immutable structs but their
-*contents* are not: `activated` is set element-wise (and, for the runtimes
-with a `quantum_memory`, `quantum_memory` is projected in place and
+`HybridRuntime`, `HybridStabilizerRuntime`, `DummyHybridRuntime`, and
+`DummyHybridStabilizerRuntime` are immutable structs but their *contents* are
+not: `activated` is set element-wise (and, for the runtimes with a
+`quantum_memory`, `quantum_memory` is projected in place and
 `invsparsity_history` is appended to). Sharing any of those between two
 states makes the second one skip its deferred T gate (or, for the dummies,
 misreport which magic qubits were touched) — a silently wrong outcome with no
@@ -296,12 +335,12 @@ error.
 Base.copy(rt::AbstractRuntime) = rt
 
 # `SimRuntime`/`StabilizerRuntime`/`DummyRuntime`/`DummyStabilizerRuntime`/
-# `HybridRuntime`/`HybridStabilizerRuntime` all copy the same way -- copy
-# every field, nil-guarded since `activated`/`quantum_memory` can legitimately
-# be `nothing` -- and differ only in their field lists, so one
-# reflection-driven method covers all six instead of one hand-written copy
-# per type.
-const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime,HybridRuntime,HybridStabilizerRuntime}
+# `HybridRuntime`/`HybridStabilizerRuntime`/`DummyHybridRuntime`/
+# `DummyHybridStabilizerRuntime` all copy the same way -- copy every field,
+# nil-guarded since `activated`/`quantum_memory` can legitimately be
+# `nothing` -- and differ only in their field lists, so one reflection-driven
+# method covers all eight instead of one hand-written copy per type.
+const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime,HybridRuntime,HybridStabilizerRuntime,DummyHybridRuntime,DummyHybridStabilizerRuntime}
 
 function Base.copy(rt::R) where R<:_RuntimeWithMutableFields
     fields = ntuple(fieldcount(R)) do i
