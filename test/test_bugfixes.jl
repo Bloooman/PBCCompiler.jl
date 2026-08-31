@@ -125,12 +125,17 @@ end
     ])
     state = run(copy(circuit), SimRuntime())
     width = nqubits(state.stabilizer_group)
-    quantum = filter(mr -> isa_variant(mr, MeasurementResult.QuantumRes),
+    # Both isolated gadgets here collapse to ClassicalBiasedRes rather than
+    # QuantumRes (see SimRuntime's docstring), but that reclassification
+    # happens after the same embed-then-slice step this test guards, so
+    # include both variants rather than sizing off the QuantumRes count alone.
+    quantum = filter(mr -> isa_variant(mr, MeasurementResult.QuantumRes) ||
+                           isa_variant(mr, MeasurementResult.ClassicalBiasedRes),
                      state.measurement_results)
     @test !isempty(quantum)
     @test all(length(mr.pauli) == width for mr in quantum)
     # Each gadget measurement must touch its magic qubit (never sliced to identity)
-    magicqubits = width - length(quantum) + 1 : width
+    magicqubits = width - num_gadget_qubits(state.runtime) + 1 : width
     for mr in quantum
         magic_p = mr.pauli[magicqubits]
         @test any(magic_p[i] != (false, false) for i in 1:length(magic_p))

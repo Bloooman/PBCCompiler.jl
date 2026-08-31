@@ -77,11 +77,12 @@ width difference.
 _gadget_count(preprocessed::Circuit, num_input_qubits::Int) = get_circuit_width(preprocessed) - num_input_qubits
 
 """
-Build the runtime data from an already-preprocessed circuit. For `SimRuntime`,
-allocate one magic-state qubit per gadget; gadgetization appends its magic
-qubits above the input width, so the gadget count is the width difference.
+Build the runtime data from an already-preprocessed circuit. For
+`StabilizerRuntime`/`HybridRuntime`, allocate one magic-state qubit per
+gadget; gadgetization appends its magic qubits above the input width, so the
+gadget count is the width difference.
 """
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::Union{SimRuntime, StabilizerRuntime, HybridRuntime})
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::Union{StabilizerRuntime, HybridRuntime})
     num_qubits = get_circuit_width(preprocessed)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     input = make_stabilizer_list(input_state, preprocessed)
@@ -102,7 +103,7 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     return rt
 end
 
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::collapseRuntime)
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::SimRuntime)
     num_qubits = get_circuit_width(preprocessed)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     input = make_stabilizer_list(input_state, preprocessed)
@@ -127,6 +128,7 @@ end
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyRuntime)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
+    @reset rt.collapsed = num_gadgets==0 ? nothing : falses(num_gadgets)
     return rt
 end
 
@@ -240,28 +242,25 @@ holds -- the trailing block of the register, above the data qubits.
 
 `activated` is `nothing` on a state from [`_empty_state`](@ref), which never runs
 `build_rt_data`; a circuit with nothing to execute has no gadgets, hence 0.
-
-`SimRuntime`/`DummyRuntime` do not need this: the generic `to_result` derives
-its magic block from the `QuantumRes` count rather than from `activated`.
 """
 num_gadget_qubits(rt::AbstractRuntime) =
     rt.activated === nothing ? 0 : length(rt.activated)
 
 """
-`to_result` for `collapseRuntime`. The generic `to_result(state::CompilerState)`
-sizes the magic-qubit window from the `QuantumRes` count, which assumes every
-gadget measurement lands as `QuantumRes` -- `collapseRuntime` breaks that
-assumption on purpose, reclassifying a magic qubit's measurement as
-`ClassicalBiasedRes` once its support has collapsed. Sized from
-`num_gadget_qubits(state.runtime)` instead (like `AbstractStabilizerRuntime`'s
-method) so `magicqubits`/`QPU_workload` stay correctly sized regardless of how
-many measurements collapsed.
+`to_result` for `SimRuntime`/`DummyRuntime`. The generic
+`to_result(state::CompilerState)` sizes the magic-qubit window from the
+`QuantumRes` count, which assumes every gadget measurement lands as
+`QuantumRes` -- these runtimes break that assumption on purpose, reclassifying
+an isolated magic qubit's measurement as `ClassicalBiasedRes` once its support
+has collapsed. Sized from `num_gadget_qubits(state.runtime)` instead (like
+`AbstractStabilizerRuntime`'s method) so `magicqubits`/`QPU_workload` stay
+correctly sized regardless of how many measurements collapsed.
 
 `ClassicalBiasedRes` entries are excluded from `QPU_workload`, same as the
 generic method excludes `ClassicalDetermRes`/`ClassicalRandomRes` -- whether
 that's the right semantics needs further discussion.
 """
-function to_result(state::CompilerState{<:collapseRuntime})
+function to_result(state::CompilerState{<:Union{SimRuntime,DummyRuntime}})
     num_qubits = nqubits(state.stabilizer_group)
     meas_result = state.measurement_results
     assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]

@@ -3,7 +3,7 @@
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Pauli, Measurement, ExpHalfPiPauli, ExpQuatPiPauli,ExpEighPiPauli, PauliConditional, BitConditional, preprocess_circuit, run, SimRuntime, DummyRuntime, StabilizerRuntime, DummyStabilizerRuntime
 using PBCCompiler.MeasurementResult
-using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, ClassicalBiasedRes, QuantumRes
 using QuantumClifford: @P_str, @S_str, stabilizerview
 using Moshi.Derive: @derive
 using Moshi.Data: variant_name
@@ -60,7 +60,11 @@ end
     meas_list=real_result.measurement_results
     stab=copy(stabilizerview(real_result.stabilizer_group))
 
-    @test isa_variant(meas_list[1], QuantumRes)
+    # This circuit has a single gadget (the ExpEighPiPauli T); it never
+    # entangles with another magic qubit, so SimRuntime's collapse detection
+    # reclassifies its measurement ClassicalBiasedRes instead of QuantumRes
+    # (see SimRuntime's docstring / _mark_collapsed!).
+    @test isa_variant(meas_list[1], ClassicalBiasedRes)
     @test isa_variant(meas_list[2], ClassicalRandomRes)
     @test isa_variant(meas_list[3], ClassicalDetermRes)
     @test isa_variant(meas_list[4], ClassicalDetermRes)
@@ -87,7 +91,9 @@ end
     meas_list=real_result.measurement_results
     stab=copy(stabilizerview(real_result.stabilizer_group))
 
-    @test isa_variant(meas_list[1], QuantumRes)
+    # See the SimRuntime testset above: the single gadget here is isolated,
+    # so DummyRuntime's collapse detection reclassifies it too.
+    @test isa_variant(meas_list[1], ClassicalBiasedRes)
     @test isa_variant(meas_list[2], ClassicalRandomRes)
     @test isa_variant(meas_list[3], ClassicalDetermRes)
     @test isa_variant(meas_list[4], ClassicalDetermRes)

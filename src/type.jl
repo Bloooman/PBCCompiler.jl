@@ -104,7 +104,18 @@ using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes, Cl
 """Supertype of the measurement backends a circuit can be compiled/computed against."""
 abstract type AbstractRuntime end
 
-"""Runtime that simulates magic-state measurements with QuantumClifford's `GeneralizedStabilizer`."""
+"""
+Runtime that simulates magic-state measurements with QuantumClifford's
+`GeneralizedStabilizer`.
+
+A gadget measurement that touches only one magic qubit and finds it not yet
+`activated` needs no real quantum work: an isolated magic qubit's statistics
+never entangled with the live register, so its outcome is a classical bias,
+not a quantum one. This runtime detects that case structurally (see
+`_mark_collapsed!`) and records it as `ClassicalBiasedRes` instead of
+`QuantumRes`, so `QPU_workload`/`to_result` reflect only measurements that
+actually needed the magic register.
+"""
 struct SimRuntime{Q} <: AbstractRuntime
     # Q is the concrete GeneralizedStabilizer instantiation (or Nothing before a
     # magic register exists). Declaring the field as the unparameterized
@@ -119,11 +130,14 @@ struct SimRuntime{Q} <: AbstractRuntime
     chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
     """
     activated::Union{BitVector, Nothing}
+    """Magic qubits whose measurement has been reclassified as a classical
+    bias rather than a genuine quantum outcome -- see the struct docstring."""
+    collapsed::Union{BitVector, Nothing}
     """Number of non-zero elements in the density matrix at each simulation"""
     invsparsity_history::Vector{Int}
 end
 
-SimRuntime() = SimRuntime(nothing, nothing, Int[])
+SimRuntime() = SimRuntime(nothing, nothing, nothing, Int[])
 
 """Supertype of runtimes that classify every non-deterministic outcome by
 projecting the full register (no anticommuting coin-flip branch)."""
@@ -171,7 +185,8 @@ StabilizerRuntime() = StabilizerRuntime(nothing, nothing, Int[])
 
 """Runtime that replaces quantum measurements with classical coin flips of a
 fixed bias, while still tracking which magic qubits a measurement touched
-(mirrors `SimRuntime.activated`) for parity/diagnostics."""
+(mirrors `SimRuntime.activated`) and which have collapsed to a classical bias
+(mirrors `SimRuntime.collapsed`) for parity/diagnostics."""
 struct DummyRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
@@ -179,10 +194,13 @@ struct DummyRuntime <: AbstractRuntime
     `SimRuntime.activated`; `nothing` before `build_rt_data` runs (or when the
     circuit has no gadgets)."""
     activated::Union{BitVector, Nothing}
+    """Magic qubits reclassified as a classical bias, mirroring
+    `SimRuntime.collapsed`."""
+    collapsed::Union{BitVector, Nothing}
 end
 
-DummyRuntime() = DummyRuntime(0.5, nothing)
-DummyRuntime(p::Float64) = DummyRuntime(p, nothing)
+DummyRuntime() = DummyRuntime(0.5, nothing, nothing)
+DummyRuntime(p::Float64) = DummyRuntime(p, nothing, nothing)
 
 """Cheap stand-in for `StabilizerRuntime`: same control flow (no anticommuting
 coin-flip branch), same `activated` bookkeeping of which magic qubits a
@@ -286,27 +304,6 @@ struct DummyHybridStabilizerRuntime <: AbstractStabilizerRuntime
     n_measurements_at_transition::Int
 end
 
-struct collapseRuntime{Q} <: AbstractRuntime
-    # Q is the concrete GeneralizedStabilizer instantiation (or Nothing before a
-    # magic register exists). Declaring the field as the unparameterized
-    # `GeneralizedStabilizer` instead would make it non-concrete, which is
-    # enough on its own to infer `run` and `do_quantum_step` as `Any`.
-    """GeneralizedStabilizer object holding current quantum state within quantum computer"""
-    quantum_memory::Q
-    """
-    Magic qubits whose deferred T gate has already been applied. The magic
-    register starts as the stabilizer state |+>^n and each T gate is applied
-    lazily, right before the first measurement touching its qubit, keeping the
-    chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
-    """
-    activated::Union{BitVector, Nothing}
-    collapsed::Union{BitVector, Nothing}
-    """Number of non-zero elements in the density matrix at each simulation"""
-    invsparsity_history::Vector{Int}
-end
-
-collapseRuntime() = collapseRuntime(nothing, nothing, nothing, Int[])
-
 """Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
@@ -363,12 +360,12 @@ Base.copy(rt::AbstractRuntime) = rt
 
 # `SimRuntime`/`StabilizerRuntime`/`DummyRuntime`/`DummyStabilizerRuntime`/
 # `HybridRuntime`/`HybridStabilizerRuntime`/`DummyHybridRuntime`/
-# `DummyHybridStabilizerRuntime`/`collapseRuntime` all copy the same way --
-# copy every field, nil-guarded since `activated`/`quantum_memory`/`collapsed`
-# can legitimately be `nothing` -- and differ only in their field lists, so
-# one reflection-driven method covers all nine instead of one hand-written
-# copy per type.
-const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime,HybridRuntime,HybridStabilizerRuntime,DummyHybridRuntime,DummyHybridStabilizerRuntime,collapseRuntime}
+# `DummyHybridStabilizerRuntime` all copy the same way -- copy every field,
+# nil-guarded since `activated`/`quantum_memory`/`collapsed` can legitimately
+# be `nothing` -- and differ only in their field lists, so one
+# reflection-driven method covers all eight instead of one hand-written copy
+# per type.
+const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime,HybridRuntime,HybridStabilizerRuntime,DummyHybridRuntime,DummyHybridStabilizerRuntime}
 
 function Base.copy(rt::R) where R<:_RuntimeWithMutableFields
     fields = ntuple(fieldcount(R)) do i
@@ -408,6 +405,7 @@ end
 function _result_type_str(t)
     t == :ClassicalDetermRes && return "ClassicalDeterministic"
     t == :ClassicalRandomRes && return "ClassicalRandom"
+    t == :ClassicalBiasedRes && return "ClassicalBiased"
     t == :QuantumRes         && return "Quantum"
     return string(t)
 end

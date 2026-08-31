@@ -41,13 +41,14 @@ end
 const QUBIT_VIEWS = (:all, :data, :magic)
 
 """Valid values for the `variant` keyword of [`get_graph`](@ref)/[`get_hypergraph`](@ref)."""
-const RESULT_VARIANTS = (:all, :quantum, :determ, :random)
+const RESULT_VARIANTS = (:all, :quantum, :determ, :random, :biased)
 
 # `variant` value -> the MeasurementResult variant it keeps
 const _VARIANT_NAME = Dict(
     :quantum => :QuantumRes,
     :determ  => :ClassicalDetermRes,
     :random  => :ClassicalRandomRes,
+    :biased  => :ClassicalBiasedRes,
 )
 
 """

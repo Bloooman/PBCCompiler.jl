@@ -189,7 +189,7 @@ function get_measurement_result(state::CompilerState{<:AbstractStabilizerRuntime
     end
 end
 
-function get_measurement_result(state::CompilerState{<:collapseRuntime}, op::CircuitOp.Type)
+function get_measurement_result(state::CompilerState{<:SimRuntime}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
     md = state.stabilizer_group
@@ -214,6 +214,43 @@ function get_measurement_result(state::CompilerState{<:collapseRuntime}, op::Cir
         # quantum_measurement projects only the magic part, so the
         # data part's eigenvalue under the current stabilizer group
         # (-1 for e.g. a -Z input row) must multiply the outcome.
+        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        _record_projection!(md, projection, result)
+        if collapsed == rt.collapsed
+            @reset state.runtime = rt
+            return (QuantumRes(pauli, result), state)
+        else
+            @reset state.runtime = rt
+            return (ClassicalBiasedRes(pauli, result), state)
+        end
+    else
+        result = Bool(projection[3]>>1)
+        return (ClassicalDetermRes(pauli, result), state)
+    end
+end
+
+function get_measurement_result(state::CompilerState{<:DummyRuntime}, op::CircuitOp.Type)
+    isa_variant(op, CircuitOp.Measurement) || return nothing
+    rt = state.runtime
+    md = state.stabilizer_group
+    num_qubits = nqubits(md)
+    sv = stabilizerview(md)
+    # `collapsed` (like `activated`) can be `nothing` on a gadget-free circuit
+    collapsed = rt.collapsed === nothing ? nothing : copy(rt.collapsed)
+    # Full-width Pauli: all result types share absolute qubit positions
+    pauli = embed(num_qubits, op.qubits, op.pauli)
+    # An anticommuting stabilizer row means a coin-flip outcome. Detect it by a
+    # row scan so the tableau stays untouched: this branch updates the state by
+    # splicing compensating rotations into the circuit, not by projecting.
+    anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
+    if anticom !== nothing
+        return _resolve_anticommuting_measurement!(state, op, sv, anticom, num_qubits, pauli, rand(Bool))
+    end
+    projection = project!(md, pauli)
+    if projection[3] === nothing
+        # Commuting and independent of the group: project! grew the rank in
+        # place, adding `pauli` as the row at index projection[2]
+        (rt, result) = quantum_measurement(rt, op, num_qubits)
         result ⊻= data_part_eigenvalue(state, op, num_qubits)
         _record_projection!(md, projection, result)
         if collapsed == rt.collapsed
@@ -301,8 +338,11 @@ function _activate_and_apply_T!(quantum_state, activated::BitVector, real_p, off
 end
 
 """
-    quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
-Perform quantum measurement simulation on given state using QuantumClifford.jl backend
+    quantum_measurement(state::AbstractRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{AbstractRuntime, Bool}
+Perform quantum measurement simulation on given state using QuantumClifford.jl
+backend. Generic fallback for any `AbstractRuntime` without a more specific
+method -- e.g. `HybridRuntime` before it converts. `SimRuntime` has its own
+method below (see [`_mark_collapsed!`](@ref)).
 """
 function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S<:AbstractRuntime
     quantum_state = rt.quantum_memory
@@ -350,7 +390,16 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     return (rt, result)
 end
 
-function quantum_measurement(rt::collapseRuntime, op::CircuitOp.Type, num_qubits::Int)
+"""
+    quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
+
+Perform quantum measurement simulation on given state using QuantumClifford.jl
+backend. Unlike the generic `AbstractRuntime` method, this also calls
+[`_mark_collapsed!`](@ref) before applying any deferred T gate, so an isolated
+magic qubit's first touch is recorded in `rt.collapsed` and its outcome can be
+classified `ClassicalBiasedRes` by the caller instead of `QuantumRes`.
+"""
+function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int)
     quantum_state = rt.quantum_memory
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
@@ -409,13 +458,19 @@ data_part_eigenvalue(state::CompilerState{DummyHybridRuntime}, op::CircuitOp.Typ
 
 """
     quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
-Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`.
+Perform quantum measurement simulation using classical sampling according to
+weight determined by `p1_outcome_probs`. Also calls [`_mark_collapsed!`](@ref)
+on the magic-block-restricted Pauli, mirroring `SimRuntime`'s collapse
+detection so the caller can classify an isolated magic qubit's first touch as
+`ClassicalBiasedRes` instead of `QuantumRes`, even though no real quantum
+state is simulated here.
 """
 function quantum_measurement(rt::DummyRuntime, op::CircuitOp.Type, num_qubits::Int)
     if rt.activated !== nothing
         num_magic = length(rt.activated)
         magicqubits = num_qubits-num_magic+1:num_qubits
         real_p = embed(num_qubits, op.qubits, op.pauli)[magicqubits]
+        _mark_collapsed!(rt.activated, rt.collapsed, real_p, 0, 1:num_magic)
         _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
     end
     result = rand() < rt.p1_outcome_probs

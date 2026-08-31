@@ -51,7 +51,13 @@ The `preprocess_circuit` function transforms circuits through stages:
 - `AbstractRuntime` - Supertype of the measurement backends
 - `SimRuntime` - Simulates the magic register with a `GeneralizedStabilizer`;
   outcomes that anticommute with the stabilizer group become coin flips resolved
-  by splicing compensating rotations into the circuit
+  by splicing compensating rotations into the circuit. A gadget measurement
+  that touches only one magic qubit and finds it not yet `activated` is an
+  isolated magic qubit whose statistics never entangled with the live
+  register, so it's recorded as `ClassicalBiasedRes` instead of `QuantumRes`
+  (see `_mark_collapsed!`) and `to_result`/`QPU_workload` are sized from
+  `num_gadget_qubits` rather than the `QuantumRes` count to stay correct
+  regardless of how many measurements collapsed
 - `StabilizerRuntime` - Simulates the full register (data + magic) together, so
   it projects for every non-deterministic outcome and never yields a
   `ClassicalRandomRes`. **This is intended design — do not "fix" it.** Every
@@ -62,9 +68,9 @@ The `preprocess_circuit` function transforms circuits through stages:
   classification differs
 - `DummyRuntime` / `TraversalRuntime` - Replace quantum measurements with
   classical coin flips of a fixed bias. `DummyRuntime` still tracks
-  `activated` the same way `SimRuntime` does, for parity/diagnostics — it
-  isn't consumed by `to_result`, which derives its magic block from the
-  `QuantumRes` count instead
+  `activated`/`collapsed` the same way `SimRuntime` does, for parity/diagnostics,
+  including the same `ClassicalBiasedRes` reclassification and
+  `num_gadget_qubits`-based `to_result` sizing
 - `DummyStabilizerRuntime` - Cheap stand-in for `StabilizerRuntime`: same
   control flow (no anticommuting coin-flip branch) and same `activated`
   bookkeeping of which magic qubits a measurement touched, but coin-flips

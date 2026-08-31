@@ -3,7 +3,7 @@
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpEighPiPauli, SimRuntime,
     DummyRuntime, DummyStabilizerRuntime, HybridRuntime, StabilizerRuntime,
-    DummyHybridRuntime, DummyHybridStabilizerRuntime, collapseRuntime,
+    DummyHybridRuntime, DummyHybridStabilizerRuntime,
     build_compilerstate, do_quantum_step
 using QuantumClifford: @P_str
 
@@ -18,6 +18,7 @@ gadget_circuit() = Circuit(CircuitOp.Type[
     state = build_compilerstate(gadget_circuit(), SimRuntime(), nothing)
     @test state.runtime.quantum_memory !== nothing
     @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
 
     original_chi = length(state.runtime.quantum_memory.destabweights)
 
@@ -25,6 +26,7 @@ gadget_circuit() = Circuit(CircuitOp.Type[
     @test other.runtime !== state.runtime
     @test other.runtime.quantum_memory !== state.runtime.quantum_memory
     @test other.runtime.activated !== state.runtime.activated
+    @test other.runtime.collapsed !== state.runtime.collapsed
     @test other.runtime.invsparsity_history !== state.runtime.invsparsity_history
 
     # Drive a full measurement on the copy. It activates a magic qubit (applying
@@ -43,10 +45,12 @@ end
 @testset "copy does not alias activated for DummyRuntime" begin
     state = build_compilerstate(gadget_circuit(), DummyRuntime(), nothing)
     @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
 
     other = copy(state)
     @test other.runtime !== state.runtime
     @test other.runtime.activated !== state.runtime.activated
+    @test other.runtime.collapsed !== state.runtime.collapsed
 
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
@@ -117,33 +121,6 @@ end
     copied = do_quantum_step(copied)
     @test any(copied.runtime.activated)
     @test !any(other.runtime.activated)
-end
-
-@testset "copy does not alias magic-state memory for collapseRuntime" begin
-    state = build_compilerstate(gadget_circuit(), collapseRuntime(), nothing)
-    @test state.runtime.quantum_memory !== nothing
-    @test !any(state.runtime.activated)
-    @test !any(state.runtime.collapsed)
-
-    original_chi = length(state.runtime.quantum_memory.destabweights)
-
-    other = copy(state)
-    @test other.runtime !== state.runtime
-    @test other.runtime.quantum_memory !== state.runtime.quantum_memory
-    @test other.runtime.activated !== state.runtime.activated
-    @test other.runtime.collapsed !== state.runtime.collapsed
-    @test other.runtime.invsparsity_history !== state.runtime.invsparsity_history
-
-    other = do_quantum_step(other)
-    @test any(other.runtime.activated)
-
-    # Before collapseRuntime was added to `_RuntimeWithMutableFields`, `copy`
-    # fell through to the identity fallback and this state was shared -- a
-    # second shot off `state` would have continued mutating the first shot's
-    # already-projected magic register instead of starting fresh.
-    @test !any(state.runtime.activated)
-    @test isempty(state.runtime.invsparsity_history)
-    @test length(state.runtime.quantum_memory.destabweights) == original_chi
 end
 
 @testset "copy leaves the tableau and circuit independent" begin
@@ -287,6 +264,7 @@ using PBCCompiler: MeasurementResult, _magic_block_qpu_load
 using .MeasurementResult: QuantumRes
 using QuantumClifford: @P_str, nqubits
 using Random: seed!
+using Moshi.Match: isa_variant
 
 # Three independent pi/8 rotations -> three magic-state gadgets, so a
 # threshold of 2 is crossed partway through the run (one gadget resolves
@@ -316,10 +294,10 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
 
     # Regression check for the pre/post-transition QPU_workload width
     # mismatch. `three_gadget_circuit`'s own pre-transition measurement only
-    # ever touches one magic qubit, so `_magic_block_qpu_load` folds it away
-    # entirely and the natural run above never actually exercises the padding
-    # path. Force a pre-transition measurement with joint support on two
-    # magic qubits (so it survives folding) to confirm it still comes out at
+    # ever touches one magic qubit, so the natural run above never actually
+    # exercises the multi-qubit padding path. Force a pre-transition
+    # measurement with joint support on two magic qubits to confirm it still
+    # comes out at
     # the same width as the post-transition entries, with the data-qubit
     # segment (qubit 1) forced to identity rather than leaking its Z support.
     num_qubits = nqubits(result.stabilizer_group)
@@ -338,15 +316,21 @@ end
     @test result.runtime isa HybridRuntime
 
     # Regression check: a HybridRuntime that never converts must keep using
-    # the generic to_result method, unaffected by the new dispatch. Seed both
-    # runs identically so their random outcomes (and therefore QPU_workload)
-    # line up.
+    # the generic to_result method (sizing off the QuantumRes count), not
+    # SimRuntime's collapse-aware one -- HybridRuntime has no `collapsed`
+    # field, so dispatching to that method would error. `nqubits` still
+    # matches SimRuntime's (both keep the full-width tableau), but
+    # QPU_workload length no longer does: SimRuntime excludes isolated
+    # gadgets as ClassicalBiasedRes, HybridRuntime (pre-transition) does not.
     hybrid_out = to_result(result)
+    assigned = [result.measurement_results[i] for i in 1:length(result.measurement_results)
+                if isassigned(result.measurement_results, i)]
+    quantum_count = count(mr -> isa_variant(mr, QuantumRes), assigned)
     seed!(1)
     sim_result = PBCCompiler.run(copy(three_gadget_circuit), SimRuntime(), nothing)
     sim_out = to_result(sim_result)
     @test nqubits(hybrid_out.stabilizer_group) == nqubits(sim_out.stabilizer_group)
-    @test length(hybrid_out.QPU_workload) == length(sim_out.QPU_workload)
+    @test length(hybrid_out.QPU_workload) == quantum_count
 end
 
 @testset "_magic_block_qpu_load embed_width pads with identity on the complement" begin
@@ -375,8 +359,11 @@ end
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, DummyHybridRuntime, DummyHybridStabilizerRuntime,
     DummyRuntime, to_result, num_gadget_qubits
+using PBCCompiler: MeasurementResult
+using .MeasurementResult: QuantumRes
 using QuantumClifford: @P_str, nqubits
 using Random: seed!
+using Moshi.Match: isa_variant
 
 # Same shape as the HybridRuntime testitem: three independent pi/8 rotations
 # -> three magic-state gadgets, so a threshold of 2 is crossed partway through
@@ -411,40 +398,47 @@ end
     @test result.runtime isa DummyHybridRuntime
 
     # Regression check: a DummyHybridRuntime that never converts must keep
-    # using the generic to_result method, unaffected by the new dispatch.
-    # Seed both runs identically so their random outcomes (and therefore
-    # QPU_workload) line up.
+    # using the generic to_result method (sizing off the QuantumRes count),
+    # not DummyRuntime's collapse-aware one -- DummyHybridRuntime has no
+    # `collapsed` field, so dispatching to that method would error.
+    # `nqubits` still matches DummyRuntime's (both keep the full-width
+    # tableau), but QPU_workload length no longer does: DummyRuntime excludes
+    # isolated gadgets as ClassicalBiasedRes, DummyHybridRuntime does not.
     hybrid_out = to_result(result)
+    assigned = [result.measurement_results[i] for i in 1:length(result.measurement_results)
+                if isassigned(result.measurement_results, i)]
+    quantum_count = count(mr -> isa_variant(mr, QuantumRes), assigned)
     seed!(1)
     dummy_result = PBCCompiler.run(copy(three_gadget_circuit), DummyRuntime(), nothing)
     dummy_out = to_result(dummy_result)
     @test nqubits(hybrid_out.stabilizer_group) == nqubits(dummy_out.stabilizer_group)
-    @test length(hybrid_out.QPU_workload) == length(dummy_out.QPU_workload)
+    @test length(hybrid_out.QPU_workload) == quantum_count
 end
 ##
 end
 
-@testitem "collapseRuntime sizes QPU_workload from num_gadget_qubits, not the QuantumRes count" tags=[:runtime] begin
+@testitem "SimRuntime/DummyRuntime size QPU_workload from num_gadget_qubits, not the QuantumRes count" tags=[:runtime] begin
 ##
 using PBCCompiler
-using PBCCompiler: CircuitOp, collapseRuntime, CompilerState, MeasurementResult, to_result,
+using PBCCompiler: CircuitOp, SimRuntime, DummyRuntime, CompilerState, MeasurementResult, to_result,
     _magic_block_qpu_load
 using QuantumClifford: @P_str, MixedDestabilizer, Stabilizer, one
 
 # The generic `to_result(state::CompilerState)` infers the magic-qubit window
-# from `length(quantum)` (the QuantumRes count). That's correct for
-# SimRuntime, where every gadget measurement is a QuantumRes, but
-# collapseRuntime reclassifies some gadget measurements as ClassicalBiasedRes
-# once their support collapses -- so the QuantumRes count can undercount the
-# true number of gadget/magic qubits. Build a state by hand (2 magic qubits:
-# qubits 3 and 4 of a 4-qubit register) with one QuantumRes spanning both
-# magic qubits and one ClassicalBiasedRes, and check the magic-qubit window
-# used to restrict/embed the QuantumRes Pauli is sized from `activated`
-# (2 gadget qubits), not from the QuantumRes count (which is only 1).
-@testset "to_result keeps both magic qubits' support on a joint QuantumRes" begin
+# from `length(quantum)` (the QuantumRes count). SimRuntime/DummyRuntime
+# reclassify some gadget measurements as ClassicalBiasedRes once their
+# support collapses -- so the QuantumRes count can undercount the true number
+# of gadget/magic qubits. Build a state by hand (2 magic qubits: qubits 3 and
+# 4 of a 4-qubit register) with one QuantumRes spanning both magic qubits and
+# one ClassicalBiasedRes, and check the magic-qubit window used to
+# restrict/embed the QuantumRes Pauli is sized from `activated` (2 gadget
+# qubits), not from the QuantumRes count (which is only 1).
+@testset "to_result keeps both magic qubits' support on a joint QuantumRes ($RT)" for (RT, rt) in [
+    (SimRuntime, SimRuntime(nothing, falses(2), falses(2), Int[])),
+    (DummyRuntime, DummyRuntime(0.5, falses(2), falses(2))),
+]
     num_qubits = 4
     stab = MixedDestabilizer(one(Stabilizer, num_qubits; basis=:Z))
-    rt = collapseRuntime(nothing, falses(2), falses(2), Int[])
     meas = MeasurementResult.Type[
         MeasurementResult.QuantumRes(P"__XX", false),
         MeasurementResult.ClassicalBiasedRes(P"__X_", true),
@@ -454,10 +448,10 @@ using QuantumClifford: @P_str, MixedDestabilizer, Stabilizer, one
         instruction_pointer=1, runtime=rt)
 
     result = to_result(state)
-    # Before collapseRuntime had its own to_result, the generic method sized
-    # the magic-qubit window from `length(quantum) == 1` instead of the true
-    # `num_gadget_qubits(rt) == 2`, silently dropping the X on qubit 3 and
-    # returning an empty QPU_workload.
+    # Before SimRuntime/DummyRuntime had their own to_result, the generic
+    # method sized the magic-qubit window from `length(quantum) == 1` instead
+    # of the true `num_gadget_qubits(rt) == 2`, silently dropping the X on
+    # qubit 3 and returning an empty QPU_workload.
     @test length(result.QPU_workload) == 1
     # Restricted to the 2-qubit magic-block width (qubits 3:4), not embedded
     # back to the full 4-qubit register.
@@ -467,10 +461,10 @@ end
 ##
 end
 
-@testitem "collapseRuntime end-to-end: isolated gadget touches classify as ClassicalBiasedRes, not QuantumRes" tags=[:runtime] begin
+@testitem "SimRuntime/DummyRuntime end-to-end: isolated gadget touches classify as ClassicalBiasedRes, not QuantumRes" tags=[:runtime] begin
 ##
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, collapseRuntime, MeasurementResult, build_compilerstate,
+using PBCCompiler: Circuit, CircuitOp, SimRuntime, DummyRuntime, MeasurementResult, build_compilerstate,
     _execution_complete, execute!, to_result
 using QuantumClifford: @P_str
 using Random: seed!
@@ -488,9 +482,9 @@ circuit = Circuit(CircuitOp.Type[
     CircuitOp.Measurement(P"Z", 1, [1]),
 ])
 
-@testset "isolated gadget produces ClassicalBiasedRes and empty QPU_workload" begin
+@testset "isolated gadget produces ClassicalBiasedRes and empty QPU_workload ($RT)" for RT in (SimRuntime, DummyRuntime)
     seed!(1)
-    state = build_compilerstate(circuit, collapseRuntime(), nothing)
+    state = build_compilerstate(circuit, RT(), nothing)
     while !_execution_complete(state)
         state = execute!(state)
     end
