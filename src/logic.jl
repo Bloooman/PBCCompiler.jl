@@ -197,33 +197,26 @@ function do_quantum_step(state::CompilerState, meas_list::Vector{Int}=find_varia
 end
 
 """
-Restrict each `QuantumRes` in `quantum` to the qubits in `magicqubits`, folding
-away any magic qubit whose Pauli support is fully accounted for by an earlier
-entry in the list (a joint measurement whose only remaining non-identity
-support is one already-resolved magic qubit needs no further QPU operation).
+Restrict each `QuantumRes` in `quantum` to the qubits in `magicqubits`.
 
-When `embed_width` is given, each kept entry's Pauli is placed back at that
-full register width (identity elsewhere) instead of returned restricted to
+When `embed_width` is given, each entry's Pauli is placed back at that full
+register width (identity elsewhere) instead of returned restricted to
 `magicqubits` alone -- used by `to_result(::CompilerState{<:HybridStabilizerRuntime})`
 so every `QPU_workload` entry has the same width as the post-transition ones
 it's concatenated with.
+
+Every entry in `quantum` already passed `project!`'s independence check to be
+classified `QuantumRes`, so every one represents real QPU work and none are
+dropped here -- a magic qubit's Pauli support looking narrow after restriction
+does not mean its outcome is already known, since it can still be entangled
+with the data register or other stabilizers.
 """
 function _magic_block_qpu_load(quantum, magicqubits, embed_width::Union{Int,Nothing}=nothing)
-    excluded_local = Set{Int}()
     qpu_load = Vector{MeasurementResult.Type}()
-
     for mr in quantum
         magic_p = mr.pauli[magicqubits]
-        for i in excluded_local
-            magic_p[i] = (false, false)
-        end
-        non_id = findall(i -> let (x, z) = magic_p[i]; x || z end, 1:length(magic_p))
-        if length(non_id) == 1
-            push!(excluded_local, non_id[1])
-        else
-            p = embed_width === nothing ? magic_p : embed(embed_width, magicqubits, magic_p)
-            push!(qpu_load, QuantumRes(p, mr.result))
-        end
+        p = embed_width === nothing ? magic_p : embed(embed_width, magicqubits, magic_p)
+        push!(qpu_load, QuantumRes(p, mr.result))
     end
     return qpu_load
 end
