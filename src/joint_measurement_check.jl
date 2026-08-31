@@ -189,6 +189,46 @@ function get_measurement_result(state::CompilerState{<:AbstractStabilizerRuntime
     end
 end
 
+function get_measurement_result(state::CompilerState{<:collapseRuntime}, op::CircuitOp.Type)
+    isa_variant(op, CircuitOp.Measurement) || return nothing
+    rt = state.runtime
+    md = state.stabilizer_group
+    num_qubits = nqubits(md)
+    sv = stabilizerview(md)
+    collapsed = copy(rt.collapsed)
+    # Full-width Pauli: all result types share absolute qubit positions
+    pauli = embed(num_qubits, op.qubits, op.pauli)
+    # An anticommuting stabilizer row means a coin-flip outcome. Detect it by a
+    # row scan so the tableau stays untouched: this branch updates the state by
+    # splicing compensating rotations into the circuit, not by projecting.
+    anticom = findfirst(i -> comm(pauli, sv, i) != 0x0, 1:length(sv))
+    if anticom !== nothing
+        return _resolve_anticommuting_measurement!(state, op, sv, anticom, num_qubits, pauli, rand(Bool))
+    end
+    projection = project!(md, pauli)
+    if projection[3] === nothing
+        # Commuting and independent of the group: project! grew the rank in
+        # place, adding `pauli` as the row at index projection[2]
+        (rt, result) = quantum_measurement(rt, op, num_qubits)
+        # The joint observable factors as (data part) ⊗ (magic part).
+        # quantum_measurement projects only the magic part, so the
+        # data part's eigenvalue under the current stabilizer group
+        # (-1 for e.g. a -Z input row) must multiply the outcome.
+        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        _record_projection!(md, projection, result)
+        if collapsed == rt.collapsed
+            @reset state.runtime = rt
+            return (QuantumRes(pauli, result), state)
+        else
+            @reset state.runtime = rt
+            return (ClassicalBiasedRes(pauli, result), state)
+        end
+    else
+        result = Bool(projection[3]>>1)
+        return (ClassicalDetermRes(pauli, result), state)
+    end
+end
+
 function get_measurement_result(state::CompilerState{TraversalRuntime}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     result = rand() < state.runtime.p1_outcome_probs
@@ -210,6 +250,23 @@ function get_measurement_result(state::CompilerState{TraversalRuntime}, op::Circ
     end
 end
 ##
+function _mark_collapsed!(activated::BitVector, collapsed::BitVector, real_p, offset::Int, candidates)
+    p = copy(real_p)
+    for k in candidates
+        m = collapsed[k]
+        if m == true
+            p[k+offset] = (false, false)
+        end
+    end
+    idx = findall(i -> p[i] != (false, false), 1:length(p))
+    if length(idx) == 1
+        j = idx[1]-offset
+        if !activated[j]
+            collapsed[j] = true
+        end
+    end
+end
+
 """
 Mark each index in `candidates` as activated in `activated` (mutating it) if
 `real_p[k+offset]` is non-identity there and it hasn't been touched yet.
@@ -285,6 +342,32 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     # Magic qubits are selected by value from `op.qubits` (the operation's
     # support), so this is correct regardless of where in the register they land
     candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
+    _activate_and_apply_T!(quantum_state, rt.activated, real_p, num_input_qubits, candidates, num_qubits, num_input_qubits)
+    bit_result = projectrand!(quantum_state, real_p)[2]
+    result=Bool(bit_result>>1)
+    append!(rt.invsparsity_history,invsparsity(quantum_state))
+    rt = @reset rt.quantum_memory = quantum_state
+    return (rt, result)
+end
+
+function quantum_measurement(rt::collapseRuntime, op::CircuitOp.Type, num_qubits::Int)
+    quantum_state = rt.quantum_memory
+    if quantum_state === nothing
+        throw(ArgumentError("Magic State not initiated"))
+    end
+    num_input_qubits = num_qubits - num_gadget_qubits(rt)
+    # op.pauli is indexed by position within op.qubits; embed it to the full
+    # register before slicing by absolute qubit indices (out-of-bounds
+    # PauliOperator indexing silently yields identity instead of throwing)
+    real_p=embed(num_qubits, op.qubits, op.pauli)
+    for i in 1:num_input_qubits
+        real_p[i] = (false, false)
+    end
+    num_magic = num_gadget_qubits(rt)
+    # The activation bit stays set after the qubit collapses back to a
+    # stabilizer state — reapplying T there would be wrong
+    candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
+    _mark_collapsed!(rt.activated, rt.collapsed, real_p, num_input_qubits, candidates)
     _activate_and_apply_T!(quantum_state, rt.activated, real_p, num_input_qubits, candidates, num_qubits, num_input_qubits)
     bit_result = projectrand!(quantum_state, real_p)[2]
     result=Bool(bit_result>>1)

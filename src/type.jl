@@ -82,6 +82,12 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
         """Single bit measurement result in boolean"""
         result::Bool
     end
+    struct ClassicalBiasedRes
+        """Corresponding Pauli String of Measurement"""
+        pauli::PauliOperator
+        """Single bit measurement result in boolean"""
+        result::Bool
+    end
     """Denoting measurement results that require performing actual quantum measurement"""
     struct QuantumRes
         """Corresponding Pauli String of Measurement"""
@@ -91,7 +97,7 @@ using .CircuitOp: Measurement, Pauli, ExpHalfPiPauli, ExpQuatPiPauli, ExpEighPiP
     end
 end
 
-using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes
+using .MeasurementResult: ClassicalDetermRes, ClassicalRandomRes, QuantumRes, ClassicalBiasedRes
 
 @derive MeasurementResult[Hash, Eq, Show]
 ##
@@ -279,6 +285,27 @@ struct DummyHybridStabilizerRuntime <: AbstractStabilizerRuntime
     """Number of measurements resolved (bits assigned in `measurement_results`) at the moment of transition"""
     n_measurements_at_transition::Int
 end
+
+struct collapseRuntime{Q} <: AbstractRuntime
+    # Q is the concrete GeneralizedStabilizer instantiation (or Nothing before a
+    # magic register exists). Declaring the field as the unparameterized
+    # `GeneralizedStabilizer` instead would make it non-concrete, which is
+    # enough on its own to infer `run` and `do_quantum_step` as `Any`.
+    """GeneralizedStabilizer object holding current quantum state within quantum computer"""
+    quantum_memory::Q
+    """
+    Magic qubits whose deferred T gate has already been applied. The magic
+    register starts as the stabilizer state |+>^n and each T gate is applied
+    lazily, right before the first measurement touching its qubit, keeping the
+    chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
+    """
+    activated::Union{BitVector, Nothing}
+    collapsed::Union{BitVector, Nothing}
+    """Number of non-zero elements in the density matrix at each simulation"""
+    invsparsity_history::Vector{Int}
+end
+
+collapseRuntime() = collapseRuntime(nothing, nothing, nothing, Int[])
 
 """Runtime that samples every measurement outcome classically with a fixed bias, used to traverse compilation branches deterministically."""
 struct TraversalRuntime <: AbstractRuntime

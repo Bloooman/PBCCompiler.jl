@@ -102,6 +102,28 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     return rt
 end
 
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::collapseRuntime)
+    num_qubits = get_circuit_width(preprocessed)
+    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
+    input = make_stabilizer_list(input_state, preprocessed)
+    generators = one(Stabilizer, num_qubits; basis=:X)
+    state = Stabilizer(generators)
+    state[1:num_input_qubits] = input
+    quantum_memory = GeneralizedStabilizer(state)
+    @debug "Number of gadgets inserted" num_gadgets _group=:api
+    @reset rt.quantum_memory=quantum_memory
+    # Unlike SimRuntime -- which allocates no magic register at all when there
+    # are no gadgets, so `nothing` is the honest value there -- this runtime
+    # always holds the full register. An empty BitVector keeps
+    # `num_input_qubits = num_qubits - length(activated)` correct on gadget-free
+    # circuits instead of throwing `MethodError: length(::Nothing)`
+    @reset rt.activated = falses(num_gadgets)
+    @reset rt.collapsed = falses(num_gadgets)
+    # See the SimRuntime method: fresh vector so shots do not concatenate
+    @reset rt.invsparsity_history = Int[]
+    return rt
+end
+
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyRuntime)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     @reset rt.activated = num_gadgets==0 ? nothing : falses(num_gadgets)
@@ -109,15 +131,6 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
 end
 
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyStabilizerRuntime)
-    num_gadgets = _gadget_count(preprocessed, num_input_qubits)
-    @reset rt.activated = falses(num_gadgets)
-    return rt
-end
-
-# Unlike `DummyRuntime` -- `activated` must never be `nothing` here even on a
-# gadget-free circuit, since `transition` bails whenever `isnothing(rt.activated)`
-# and a `nothing` would silently prevent conversion.
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyHybridRuntime)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     @reset rt.activated = falses(num_gadgets)
     return rt
@@ -135,17 +148,6 @@ function transition(state::CompilerState{<:HybridRuntime})
      count(rt.activated) < max - num_input_qubits && return state
      n_measurements = count(i -> isassigned(state.measurement_results, i), 1:length(state.measurement_results))
      @reset state.runtime = HybridStabilizerRuntime(rt.quantum_memory, rt.activated, rt.invsparsity_history, copy(rt.activated), n_measurements)
-     return state
-end
-
-function transition(state::CompilerState{<:DummyHybridRuntime})
-     rt = state.runtime
-     max = rt.maximum_measurement_support
-     (isnothing(max) || isnothing(rt.activated)) && return state
-     num_input_qubits = nqubits(state.stabilizer_group) - num_gadget_qubits(rt)
-     count(rt.activated) < max - num_input_qubits && return state
-     n_measurements = count(i -> isassigned(state.measurement_results, i), 1:length(state.measurement_results))
-     @reset state.runtime = DummyHybridStabilizerRuntime(rt.p1_outcome_probs, rt.activated, copy(rt.activated), n_measurements)
      return state
 end
 
@@ -268,7 +270,7 @@ instead of kept at the narrow magic-block width, so every entry in the
 returned `QPU_workload` has the same length as the post-transition ones it's
 concatenated with.
 """
-function to_result(state::CompilerState{<:Union{HybridStabilizerRuntime,DummyHybridStabilizerRuntime}})
+function to_result(state::CompilerState{<:HybridStabilizerRuntime})
     rt = state.runtime
     num_qubits = nqubits(state.stabilizer_group)
     meas_result = state.measurement_results
@@ -314,7 +316,7 @@ This function is not exported because it shadows `Base.run`; call it as
 
 # Arguments
 - `input_circuit`: input circuit for compilation
-- `rt`: runtime that supplies measurement outcomes (`SimRuntime`, `StabilizerRuntime`, `DummyRuntime`, `DummyStabilizerRuntime`, `HybridRuntime`, `DummyHybridRuntime`, `TraversalRuntime`)
+- `rt`: runtime that supplies measurement outcomes (`SimRuntime`, `StabilizerRuntime`, `DummyRuntime`, `DummyStabilizerRuntime`, `HybridRuntime`, `TraversalRuntime`)
 - `input_state`: initial qubit state; defaults to the all-|0⟩ state
 """
 function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothing}=nothing) where S <: AbstractRuntime
@@ -325,7 +327,7 @@ function run(input_circuit::Circuit, rt::S, input_state::Union{Stabilizer, Nothi
     return state
 end
 
-function run(input_circuit::Circuit, rt::Union{HybridRuntime,DummyHybridRuntime}, input_state::Union{Stabilizer, Nothing}=nothing)
+function run(input_circuit::Circuit, rt::HybridRuntime, input_state::Union{Stabilizer, Nothing}=nothing)
     state = build_compilerstate(input_circuit, rt, input_state)
     while !_execution_complete(state)
         state = execute!(state)
