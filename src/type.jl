@@ -363,11 +363,12 @@ Base.copy(rt::AbstractRuntime) = rt
 
 # `SimRuntime`/`StabilizerRuntime`/`DummyRuntime`/`DummyStabilizerRuntime`/
 # `HybridRuntime`/`HybridStabilizerRuntime`/`DummyHybridRuntime`/
-# `DummyHybridStabilizerRuntime` all copy the same way -- copy every field,
-# nil-guarded since `activated`/`quantum_memory` can legitimately be
-# `nothing` -- and differ only in their field lists, so one reflection-driven
-# method covers all eight instead of one hand-written copy per type.
-const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime,HybridRuntime,HybridStabilizerRuntime,DummyHybridRuntime,DummyHybridStabilizerRuntime}
+# `DummyHybridStabilizerRuntime`/`collapseRuntime` all copy the same way --
+# copy every field, nil-guarded since `activated`/`quantum_memory`/`collapsed`
+# can legitimately be `nothing` -- and differ only in their field lists, so
+# one reflection-driven method covers all nine instead of one hand-written
+# copy per type.
+const _RuntimeWithMutableFields = Union{SimRuntime,StabilizerRuntime,DummyRuntime,DummyStabilizerRuntime,HybridRuntime,HybridStabilizerRuntime,DummyHybridRuntime,DummyHybridStabilizerRuntime,collapseRuntime}
 
 function Base.copy(rt::R) where R<:_RuntimeWithMutableFields
     fields = ntuple(fieldcount(R)) do i

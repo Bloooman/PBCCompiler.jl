@@ -3,7 +3,7 @@
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, Measurement, ExpEighPiPauli, SimRuntime,
     DummyRuntime, DummyStabilizerRuntime, HybridRuntime, StabilizerRuntime,
-    DummyHybridRuntime, DummyHybridStabilizerRuntime,
+    DummyHybridRuntime, DummyHybridStabilizerRuntime, collapseRuntime,
     build_compilerstate, do_quantum_step
 using QuantumClifford: @P_str
 
@@ -117,6 +117,33 @@ end
     copied = do_quantum_step(copied)
     @test any(copied.runtime.activated)
     @test !any(other.runtime.activated)
+end
+
+@testset "copy does not alias magic-state memory for collapseRuntime" begin
+    state = build_compilerstate(gadget_circuit(), collapseRuntime(), nothing)
+    @test state.runtime.quantum_memory !== nothing
+    @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
+
+    original_chi = length(state.runtime.quantum_memory.destabweights)
+
+    other = copy(state)
+    @test other.runtime !== state.runtime
+    @test other.runtime.quantum_memory !== state.runtime.quantum_memory
+    @test other.runtime.activated !== state.runtime.activated
+    @test other.runtime.collapsed !== state.runtime.collapsed
+    @test other.runtime.invsparsity_history !== state.runtime.invsparsity_history
+
+    other = do_quantum_step(other)
+    @test any(other.runtime.activated)
+
+    # Before collapseRuntime was added to `_RuntimeWithMutableFields`, `copy`
+    # fell through to the identity fallback and this state was shared -- a
+    # second shot off `state` would have continued mutating the first shot's
+    # already-projected magic register instead of starting fresh.
+    @test !any(state.runtime.activated)
+    @test isempty(state.runtime.invsparsity_history)
+    @test length(state.runtime.quantum_memory.destabweights) == original_chi
 end
 
 @testset "copy leaves the tableau and circuit independent" begin
@@ -393,6 +420,90 @@ end
     dummy_out = to_result(dummy_result)
     @test nqubits(hybrid_out.stabilizer_group) == nqubits(dummy_out.stabilizer_group)
     @test length(hybrid_out.QPU_workload) == length(dummy_out.QPU_workload)
+end
+##
+end
+
+@testitem "collapseRuntime sizes QPU_workload from num_gadget_qubits, not the QuantumRes count" tags=[:runtime] begin
+##
+using PBCCompiler
+using PBCCompiler: CircuitOp, collapseRuntime, CompilerState, MeasurementResult, to_result,
+    _magic_block_qpu_load
+using QuantumClifford: @P_str, MixedDestabilizer, Stabilizer, one
+
+# The generic `to_result(state::CompilerState)` infers the magic-qubit window
+# from `length(quantum)` (the QuantumRes count). That's correct for
+# SimRuntime, where every gadget measurement is a QuantumRes, but
+# collapseRuntime reclassifies some gadget measurements as ClassicalBiasedRes
+# once their support collapses -- so the QuantumRes count can undercount the
+# true number of gadget/magic qubits. Build a state by hand (2 magic qubits:
+# qubits 3 and 4 of a 4-qubit register) with one QuantumRes spanning both
+# magic qubits and one ClassicalBiasedRes, and check the magic-qubit window
+# used to restrict/embed the QuantumRes Pauli is sized from `activated`
+# (2 gadget qubits), not from the QuantumRes count (which is only 1).
+@testset "to_result keeps both magic qubits' support on a joint QuantumRes" begin
+    num_qubits = 4
+    stab = MixedDestabilizer(one(Stabilizer, num_qubits; basis=:Z))
+    rt = collapseRuntime(nothing, falses(2), falses(2), Int[])
+    meas = MeasurementResult.Type[
+        MeasurementResult.QuantumRes(P"__XX", false),
+        MeasurementResult.ClassicalBiasedRes(P"__X_", true),
+    ]
+    state = CompilerState(; measurement_results=meas, stabilizer_group=stab,
+        classical_register=Union{Nothing,Bool}[], circuit=CircuitOp.Type[],
+        instruction_pointer=1, runtime=rt)
+
+    result = to_result(state)
+    # Before collapseRuntime had its own to_result, the generic method sized
+    # the magic-qubit window from `length(quantum) == 1` instead of the true
+    # `num_gadget_qubits(rt) == 2`, silently dropping the X on qubit 3 and
+    # returning an empty QPU_workload.
+    @test length(result.QPU_workload) == 1
+    # Restricted to the 2-qubit magic-block width (qubits 3:4), not embedded
+    # back to the full 4-qubit register.
+    @test result.QPU_workload[1].pauli == P"XX"
+    @test result.QPUDuration == 1
+end
+##
+end
+
+@testitem "collapseRuntime end-to-end: isolated gadget touches classify as ClassicalBiasedRes, not QuantumRes" tags=[:runtime] begin
+##
+using PBCCompiler
+using PBCCompiler: Circuit, CircuitOp, collapseRuntime, MeasurementResult, build_compilerstate,
+    _execution_complete, execute!, to_result
+using QuantumClifford: @P_str
+using Random: seed!
+using Moshi.Data: isa_variant
+
+# A single pi/8 rotation measured by itself never shares its magic qubit with
+# another gadget, so `_mark_collapsed!` finds exactly one remaining
+# non-identity (not-yet-activated) magic qubit on the very first touch and
+# marks it collapsed -- the measurement is classified `ClassicalBiasedRes`
+# instead of `QuantumRes`. This is intended: an isolated T-gadget's statistics
+# don't depend on entangling it with the live magic register, so it never
+# needs to be actual QPU work.
+circuit = Circuit(CircuitOp.Type[
+    CircuitOp.ExpEighPiPauli(P"Z", [1]),
+    CircuitOp.Measurement(P"Z", 1, [1]),
+])
+
+@testset "isolated gadget produces ClassicalBiasedRes and empty QPU_workload" begin
+    seed!(1)
+    state = build_compilerstate(circuit, collapseRuntime(), nothing)
+    while !_execution_complete(state)
+        state = execute!(state)
+    end
+    assigned = [state.measurement_results[i] for i in 1:length(state.measurement_results)
+                if isassigned(state.measurement_results, i)]
+    @test any(mr -> isa_variant(mr, MeasurementResult.ClassicalBiasedRes), assigned)
+    @test !any(mr -> isa_variant(mr, MeasurementResult.QuantumRes), assigned)
+    @test any(state.runtime.collapsed)
+    @test any(state.runtime.activated)
+
+    result = to_result(state)
+    @test isempty(result.QPU_workload)
+    @test result.QPUDuration == 0
 end
 ##
 end

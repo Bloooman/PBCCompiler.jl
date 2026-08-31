@@ -234,6 +234,34 @@ its magic block from the `QuantumRes` count rather than from `activated`.
 num_gadget_qubits(rt::AbstractRuntime) =
     rt.activated === nothing ? 0 : length(rt.activated)
 
+"""
+`to_result` for `collapseRuntime`. The generic `to_result(state::CompilerState)`
+sizes the magic-qubit window from the `QuantumRes` count, which assumes every
+gadget measurement lands as `QuantumRes` -- `collapseRuntime` breaks that
+assumption on purpose, reclassifying a magic qubit's measurement as
+`ClassicalBiasedRes` once its support has collapsed. Sized from
+`num_gadget_qubits(state.runtime)` instead (like `AbstractStabilizerRuntime`'s
+method) so `magicqubits`/`QPU_workload` stay correctly sized regardless of how
+many measurements collapsed.
+
+`ClassicalBiasedRes` entries are excluded from `QPU_workload`, same as the
+generic method excludes `ClassicalDetermRes`/`ClassicalRandomRes` -- whether
+that's the right semantics needs further discussion.
+"""
+function to_result(state::CompilerState{<:collapseRuntime})
+    num_qubits = nqubits(state.stabilizer_group)
+    meas_result = state.measurement_results
+    assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
+    quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
+    num_gadgets = num_gadget_qubits(state.runtime)
+    magicqubits = num_qubits - num_gadgets + 1 : num_qubits
+    qpu_load = _magic_block_qpu_load(quantum, magicqubits)
+
+    # CompilationResult keeps the plain Stabilizer representation (stable
+    # serialization format); extract it from the working tableau
+    CompilationResult(state.measurement_results, qpu_load, copy(stabilizerview(state.stabilizer_group)), length(qpu_load))
+end
+
 function to_result(state::CompilerState{<:AbstractStabilizerRuntime})
     num_qubits = nqubits(state.stabilizer_group)
     meas_result = state.measurement_results
