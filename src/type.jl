@@ -226,21 +226,26 @@ converts in place into a `HybridStabilizerRuntime` once total qubit support
 
 `PBCCompiler.run` drives this conversion by calling `transition` after every
 measurement step. With `maximum_measurement_support = nothing` (the default),
-it never converts and behaves exactly like `SimRuntime` for the whole run.
+it never converts and behaves exactly like `SimRuntime` for the whole run,
+including `SimRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification of
+an isolated magic qubit's first touch.
 """
 struct HybridRuntime{Q} <: AbstractRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Q
     """Magic qubits whose deferred T gate has already been applied, mirroring `SimRuntime.activated`"""
     activated::Union{BitVector, Nothing}
+    """Magic qubits whose measurement has been reclassified as a classical
+    bias rather than a genuine quantum outcome, mirroring `SimRuntime.collapsed`."""
+    collapsed::Union{BitVector, Nothing}
     """Number of non-zero elements in the density matrix at each simulation"""
     invsparsity_history::Vector{Int}
     """Total qubit support (input qubits plus activated magic qubits) at which this runtime converts into a `HybridStabilizerRuntime`; `nothing` means never convert"""
     maximum_measurement_support::Union{Int, Nothing}
 end
 
-HybridRuntime() = HybridRuntime(nothing, nothing, Int[], nothing)
-HybridRuntime(m::Int64) = HybridRuntime(nothing, nothing, Int[], m)
+HybridRuntime() = HybridRuntime(nothing, nothing, nothing, Int[], nothing)
+HybridRuntime(m::Int64) = HybridRuntime(nothing, nothing, nothing, Int[], m)
 
 """
 Runtime a `HybridRuntime` converts into once it crosses its
@@ -273,19 +278,23 @@ coin-flipping like `DummyRuntime`, then converts in place into a
 `maximum_measurement_support`), but replaces the actual quantum measurement
 with a classical coin flip of a fixed bias instead of simulating the magic
 register. With `maximum_measurement_support = nothing` (the default) it never
-converts and behaves exactly like `DummyRuntime` for the whole run.
+converts and behaves exactly like `DummyRuntime` for the whole run, including
+`DummyRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification of an
+isolated magic qubit's first touch.
 """
 struct DummyHybridRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
     """Magic qubits touched by a measurement so far, mirroring `HybridRuntime.activated`"""
     activated::Union{BitVector, Nothing}
+    """Magic qubits reclassified as a classical bias, mirroring `HybridRuntime.collapsed`."""
+    collapsed::Union{BitVector, Nothing}
     """Total qubit support (input qubits plus activated magic qubits) at which this runtime converts into a `DummyHybridStabilizerRuntime`; `nothing` means never convert"""
     maximum_measurement_support::Union{Int, Nothing}
 end
 
-DummyHybridRuntime() = DummyHybridRuntime(0.5, nothing, nothing)
-DummyHybridRuntime(m::Int64) = DummyHybridRuntime(0.5, nothing, m)
+DummyHybridRuntime() = DummyHybridRuntime(0.5, nothing, nothing, nothing)
+DummyHybridRuntime(m::Int64) = DummyHybridRuntime(0.5, nothing, nothing, m)
 
 """
 Runtime a `DummyHybridRuntime` converts into once it crosses its

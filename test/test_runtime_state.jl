@@ -76,6 +76,7 @@ end
     state = build_compilerstate(gadget_circuit(), HybridRuntime(), nothing)
     @test state.runtime.quantum_memory !== nothing
     @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
 
     original_chi = length(state.runtime.quantum_memory.destabweights)
 
@@ -83,14 +84,20 @@ end
     @test other.runtime !== state.runtime
     @test other.runtime.quantum_memory !== state.runtime.quantum_memory
     @test other.runtime.activated !== state.runtime.activated
+    @test other.runtime.collapsed !== state.runtime.collapsed
     @test other.runtime.invsparsity_history !== state.runtime.invsparsity_history
 
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
+    # gadget_circuit() has a single isolated magic qubit, so the same
+    # `_mark_collapsed!` structural detection SimRuntime uses (see the
+    # "copy does not alias magic-state memory" testset above) fires here too.
+    @test any(other.runtime.collapsed)
 
     # Before HybridRuntime was added to `_RuntimeWithMutableFields`, `copy`
     # fell through to the identity fallback and this state was shared.
     @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
     @test isempty(state.runtime.invsparsity_history)
     @test length(state.runtime.quantum_memory.destabweights) == original_chi
 end
@@ -98,14 +105,18 @@ end
 @testset "copy does not alias activated for DummyHybridRuntime" begin
     state = build_compilerstate(gadget_circuit(), DummyHybridRuntime(), nothing)
     @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
 
     other = copy(state)
     @test other.runtime !== state.runtime
     @test other.runtime.activated !== state.runtime.activated
+    @test other.runtime.collapsed !== state.runtime.collapsed
 
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
+    @test any(other.runtime.collapsed)
     @test !any(state.runtime.activated)
+    @test !any(state.runtime.collapsed)
 end
 
 @testset "copy does not alias activated for DummyHybridStabilizerRuntime" begin
@@ -264,7 +275,7 @@ using PBCCompiler: MeasurementResult, _magic_block_qpu_load
 using .MeasurementResult: QuantumRes
 using QuantumClifford: @P_str, nqubits
 using Random: seed!
-using Moshi.Match: isa_variant
+using Moshi.Data: isa_variant
 
 # Three independent pi/8 rotations -> three magic-state gadgets, so a
 # threshold of 2 is crossed partway through the run (one gadget resolves
@@ -282,6 +293,13 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
     result = PBCCompiler.run(copy(three_gadget_circuit), HybridRuntime(2), nothing)
     @test result.runtime isa HybridStabilizerRuntime
     @test count(result.runtime.activated) >= 1
+
+    # Pins the collapse-detection this fix adds: the first measurement here
+    # touches only one (not-yet-activated) magic qubit and is resolved
+    # pre-transition, so it must classify ClassicalBiasedRes just like
+    # SimRuntime would -- not QuantumRes, which is what it would classify as
+    # if collapse detection silently stopped firing pre-transition.
+    @test isa_variant(result.measurement_results[1], MeasurementResult.ClassicalBiasedRes)
 
     out = to_result(result)
     num_input_qubits = nqubits(result.stabilizer_group) - num_gadget_qubits(result.runtime)
@@ -315,22 +333,18 @@ end
     result = PBCCompiler.run(copy(three_gadget_circuit), HybridRuntime(), nothing)
     @test result.runtime isa HybridRuntime
 
-    # Regression check: a HybridRuntime that never converts must keep using
-    # the generic to_result method (sizing off the QuantumRes count), not
-    # SimRuntime's collapse-aware one -- HybridRuntime has no `collapsed`
-    # field, so dispatching to that method would error. `nqubits` still
-    # matches SimRuntime's (both keep the full-width tableau), but
-    # QPU_workload length no longer does: SimRuntime excludes isolated
-    # gadgets as ClassicalBiasedRes, HybridRuntime (pre-transition) does not.
+    # A HybridRuntime that never converts now behaves exactly like
+    # SimRuntime for the whole run: it shares SimRuntime's `collapsed` field
+    # and collapse-aware `to_result`, so isolated gadgets are reclassified
+    # ClassicalBiasedRes and excluded from QPU_workload the same way.
     hybrid_out = to_result(result)
-    assigned = [result.measurement_results[i] for i in 1:length(result.measurement_results)
-                if isassigned(result.measurement_results, i)]
-    quantum_count = count(mr -> isa_variant(mr, QuantumRes), assigned)
     seed!(1)
     sim_result = PBCCompiler.run(copy(three_gadget_circuit), SimRuntime(), nothing)
     sim_out = to_result(sim_result)
     @test nqubits(hybrid_out.stabilizer_group) == nqubits(sim_out.stabilizer_group)
-    @test length(hybrid_out.QPU_workload) == quantum_count
+    @test length(hybrid_out.QPU_workload) == length(sim_out.QPU_workload)
+    @test result.runtime.collapsed == sim_result.runtime.collapsed
+    @test any(result.runtime.collapsed)
 end
 
 @testset "_magic_block_qpu_load embed_width pads with identity on the complement" begin
@@ -359,11 +373,8 @@ end
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, DummyHybridRuntime, DummyHybridStabilizerRuntime,
     DummyRuntime, to_result, num_gadget_qubits
-using PBCCompiler: MeasurementResult
-using .MeasurementResult: QuantumRes
 using QuantumClifford: @P_str, nqubits
 using Random: seed!
-using Moshi.Match: isa_variant
 
 # Same shape as the HybridRuntime testitem: three independent pi/8 rotations
 # -> three magic-state gadgets, so a threshold of 2 is crossed partway through
@@ -397,22 +408,18 @@ end
     result = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(), nothing)
     @test result.runtime isa DummyHybridRuntime
 
-    # Regression check: a DummyHybridRuntime that never converts must keep
-    # using the generic to_result method (sizing off the QuantumRes count),
-    # not DummyRuntime's collapse-aware one -- DummyHybridRuntime has no
-    # `collapsed` field, so dispatching to that method would error.
-    # `nqubits` still matches DummyRuntime's (both keep the full-width
-    # tableau), but QPU_workload length no longer does: DummyRuntime excludes
-    # isolated gadgets as ClassicalBiasedRes, DummyHybridRuntime does not.
+    # A DummyHybridRuntime that never converts now behaves exactly like
+    # DummyRuntime for the whole run: it shares DummyRuntime's `collapsed`
+    # field and collapse-aware `to_result`, so isolated gadgets are
+    # reclassified ClassicalBiasedRes and excluded from QPU_workload the same way.
     hybrid_out = to_result(result)
-    assigned = [result.measurement_results[i] for i in 1:length(result.measurement_results)
-                if isassigned(result.measurement_results, i)]
-    quantum_count = count(mr -> isa_variant(mr, QuantumRes), assigned)
     seed!(1)
     dummy_result = PBCCompiler.run(copy(three_gadget_circuit), DummyRuntime(), nothing)
     dummy_out = to_result(dummy_result)
     @test nqubits(hybrid_out.stabilizer_group) == nqubits(dummy_out.stabilizer_group)
-    @test length(hybrid_out.QPU_workload) == quantum_count
+    @test length(hybrid_out.QPU_workload) == length(dummy_out.QPU_workload)
+    @test result.runtime.collapsed == dummy_result.runtime.collapsed
+    @test any(result.runtime.collapsed)
 end
 ##
 end
@@ -461,11 +468,11 @@ end
 ##
 end
 
-@testitem "SimRuntime/DummyRuntime end-to-end: isolated gadget touches classify as ClassicalBiasedRes, not QuantumRes" tags=[:runtime] begin
+@testitem "SimRuntime/DummyRuntime/HybridRuntime/DummyHybridRuntime end-to-end: isolated gadget touches classify as ClassicalBiasedRes, not QuantumRes" tags=[:runtime] begin
 ##
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, SimRuntime, DummyRuntime, MeasurementResult, build_compilerstate,
-    _execution_complete, execute!, to_result
+using PBCCompiler: Circuit, CircuitOp, SimRuntime, DummyRuntime, HybridRuntime, DummyHybridRuntime,
+    MeasurementResult, build_compilerstate, _execution_complete, execute!, to_result
 using QuantumClifford: @P_str
 using Random: seed!
 using Moshi.Data: isa_variant
@@ -482,7 +489,7 @@ circuit = Circuit(CircuitOp.Type[
     CircuitOp.Measurement(P"Z", 1, [1]),
 ])
 
-@testset "isolated gadget produces ClassicalBiasedRes and empty QPU_workload ($RT)" for RT in (SimRuntime, DummyRuntime)
+@testset "isolated gadget produces ClassicalBiasedRes and empty QPU_workload ($RT)" for RT in (SimRuntime, DummyRuntime, HybridRuntime, DummyHybridRuntime)
     seed!(1)
     state = build_compilerstate(circuit, RT(), nothing)
     while !_execution_complete(state)

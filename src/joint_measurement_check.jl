@@ -189,7 +189,7 @@ function get_measurement_result(state::CompilerState{<:AbstractStabilizerRuntime
     end
 end
 
-function get_measurement_result(state::CompilerState{<:SimRuntime}, op::CircuitOp.Type)
+function get_measurement_result(state::CompilerState{<:Union{SimRuntime,HybridRuntime}}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
     md = state.stabilizer_group
@@ -229,7 +229,7 @@ function get_measurement_result(state::CompilerState{<:SimRuntime}, op::CircuitO
     end
 end
 
-function get_measurement_result(state::CompilerState{<:DummyRuntime}, op::CircuitOp.Type)
+function get_measurement_result(state::CompilerState{<:Union{DummyRuntime,DummyHybridRuntime}}, op::CircuitOp.Type)
     isa_variant(op, CircuitOp.Measurement) || return nothing
     rt = state.runtime
     md = state.stabilizer_group
@@ -341,8 +341,11 @@ end
     quantum_measurement(state::AbstractRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{AbstractRuntime, Bool}
 Perform quantum measurement simulation on given state using QuantumClifford.jl
 backend. Generic fallback for any `AbstractRuntime` without a more specific
-method -- e.g. `HybridRuntime` before it converts. `SimRuntime` has its own
-method below (see [`_mark_collapsed!`](@ref)).
+method. Every concrete runtime currently defined has its own method
+(`SimRuntime`/`HybridRuntime` below use [`_mark_collapsed!`](@ref);
+`AbstractStabilizerRuntime` subtypes have theirs just above), so this is
+unreachable today -- it only guards a future runtime type added without its
+own `quantum_measurement`.
 """
 function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S<:AbstractRuntime
     quantum_state = rt.quantum_memory
@@ -391,15 +394,17 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
 end
 
 """
-    quantum_measurement(state::SimRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{SimRuntime, Bool}
+    quantum_measurement(state::Union{SimRuntime,HybridRuntime}, op::CircuitOp.Type, num_qubits::Int) -> Tuple{AbstractRuntime, Bool}
 
 Perform quantum measurement simulation on given state using QuantumClifford.jl
 backend. Unlike the generic `AbstractRuntime` method, this also calls
 [`_mark_collapsed!`](@ref) before applying any deferred T gate, so an isolated
 magic qubit's first touch is recorded in `rt.collapsed` and its outcome can be
 classified `ClassicalBiasedRes` by the caller instead of `QuantumRes`.
+`HybridRuntime` shares this method with `SimRuntime` (pre-transition, it
+behaves identically).
 """
-function quantum_measurement(rt::SimRuntime, op::CircuitOp.Type, num_qubits::Int)
+function quantum_measurement(rt::Union{SimRuntime,HybridRuntime}, op::CircuitOp.Type, num_qubits::Int)
     quantum_state = rt.quantum_memory
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
@@ -457,15 +462,16 @@ data_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num
 data_part_eigenvalue(state::CompilerState{DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
-    quantum_measurement(state::DummyRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyRuntime, Bool}
+    quantum_measurement(state::Union{DummyRuntime,DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int) -> Tuple{AbstractRuntime, Bool}
 Perform quantum measurement simulation using classical sampling according to
 weight determined by `p1_outcome_probs`. Also calls [`_mark_collapsed!`](@ref)
 on the magic-block-restricted Pauli, mirroring `SimRuntime`'s collapse
 detection so the caller can classify an isolated magic qubit's first touch as
 `ClassicalBiasedRes` instead of `QuantumRes`, even though no real quantum
-state is simulated here.
+state is simulated here. `DummyHybridRuntime` shares this method with
+`DummyRuntime` (pre-transition, it behaves identically).
 """
-function quantum_measurement(rt::DummyRuntime, op::CircuitOp.Type, num_qubits::Int)
+function quantum_measurement(rt::Union{DummyRuntime,DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int)
     if rt.activated !== nothing
         num_magic = length(rt.activated)
         magicqubits = num_qubits-num_magic+1:num_qubits
@@ -487,21 +493,6 @@ function quantum_measurement(rt::DummyStabilizerRuntime, op::CircuitOp.Type, num
         real_p = embed(num_qubits, op.qubits, op.pauli)
         candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
         _mark_activated!(rt.activated, real_p, num_input_qubits, candidates)
-    end
-    result = rand() < rt.p1_outcome_probs
-    return (rt, result)
-end
-
-"""
-    quantum_measurement(state::DummyHybridRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyHybridRuntime, Bool}
-Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
-"""
-function quantum_measurement(rt::DummyHybridRuntime, op::CircuitOp.Type, num_qubits::Int)
-    if rt.activated !== nothing
-        num_magic = length(rt.activated)
-        magicqubits = num_qubits-num_magic+1:num_qubits
-        real_p = embed(num_qubits, op.qubits, op.pauli)[magicqubits]
-        _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
     end
     result = rand() < rt.p1_outcome_probs
     return (rt, result)

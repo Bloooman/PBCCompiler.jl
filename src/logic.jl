@@ -77,12 +77,12 @@ width difference.
 _gadget_count(preprocessed::Circuit, num_input_qubits::Int) = get_circuit_width(preprocessed) - num_input_qubits
 
 """
-Build the runtime data from an already-preprocessed circuit. For
-`StabilizerRuntime`/`HybridRuntime`, allocate one magic-state qubit per
-gadget; gadgetization appends its magic qubits above the input width, so the
-gadget count is the width difference.
+Build the runtime data from an already-preprocessed circuit for
+`StabilizerRuntime`: allocate one magic-state qubit per gadget; gadgetization
+appends its magic qubits above the input width, so the gadget count is the
+width difference.
 """
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::Union{StabilizerRuntime, HybridRuntime})
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::StabilizerRuntime)
     num_qubits = get_circuit_width(preprocessed)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     input = make_stabilizer_list(input_state, preprocessed)
@@ -103,7 +103,13 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     return rt
 end
 
-function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::SimRuntime)
+"""
+Build the runtime data from an already-preprocessed circuit for
+`SimRuntime`/`HybridRuntime`: allocate one magic-state qubit per gadget;
+gadgetization appends its magic qubits above the input width, so the gadget
+count is the width difference.
+"""
+function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::Union{SimRuntime,HybridRuntime})
     num_qubits = get_circuit_width(preprocessed)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     input = make_stabilizer_list(input_state, preprocessed)
@@ -138,12 +144,13 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     return rt
 end
 
-# Unlike `DummyRuntime` -- `activated` must never be `nothing` here even on a
-# gadget-free circuit, since `transition` bails whenever `isnothing(rt.activated)`
-# and a `nothing` would silently prevent conversion.
+# Unlike `DummyRuntime` -- `activated`/`collapsed` must never be `nothing`
+# here even on a gadget-free circuit, since `transition` bails whenever
+# `isnothing(rt.activated)` and a `nothing` would silently prevent conversion.
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::DummyHybridRuntime)
     num_gadgets = _gadget_count(preprocessed, num_input_qubits)
     @reset rt.activated = falses(num_gadgets)
+    @reset rt.collapsed = falses(num_gadgets)
     return rt
 end
 
@@ -247,20 +254,23 @@ num_gadget_qubits(rt::AbstractRuntime) =
     rt.activated === nothing ? 0 : length(rt.activated)
 
 """
-`to_result` for `SimRuntime`/`DummyRuntime`. The generic
-`to_result(state::CompilerState)` sizes the magic-qubit window from the
-`QuantumRes` count, which assumes every gadget measurement lands as
-`QuantumRes` -- these runtimes break that assumption on purpose, reclassifying
-an isolated magic qubit's measurement as `ClassicalBiasedRes` once its support
-has collapsed. Sized from `num_gadget_qubits(state.runtime)` instead (like
-`AbstractStabilizerRuntime`'s method) so `magicqubits`/`QPU_workload` stay
-correctly sized regardless of how many measurements collapsed.
+`to_result` for `SimRuntime`/`DummyRuntime`/`HybridRuntime`/`DummyHybridRuntime`
+(the last two only pre-transition -- see
+`to_result(::CompilerState{<:Union{HybridStabilizerRuntime,DummyHybridStabilizerRuntime}})`
+for the post-transition case). The generic `to_result(state::CompilerState)`
+sizes the magic-qubit window from the `QuantumRes` count, which assumes every
+gadget measurement lands as `QuantumRes` -- these runtimes break that
+assumption on purpose, reclassifying an isolated magic qubit's measurement as
+`ClassicalBiasedRes` once its support has collapsed. Sized from
+`num_gadget_qubits(state.runtime)` instead (like `AbstractStabilizerRuntime`'s
+method) so `magicqubits`/`QPU_workload` stay correctly sized regardless of how
+many measurements collapsed.
 
 `ClassicalBiasedRes` entries are excluded from `QPU_workload`, same as the
 generic method excludes `ClassicalDetermRes`/`ClassicalRandomRes` -- whether
 that's the right semantics needs further discussion.
 """
-function to_result(state::CompilerState{<:Union{SimRuntime,DummyRuntime}})
+function to_result(state::CompilerState{<:Union{SimRuntime,DummyRuntime,HybridRuntime,DummyHybridRuntime}})
     num_qubits = nqubits(state.stabilizer_group)
     meas_result = state.measurement_results
     assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
@@ -296,7 +306,10 @@ end
 before the transition were `SimRuntime`-style: only their magic-qubit support
 is real QPU work (the data part was already resolved classically), so those
 `QuantumRes` entries go through the same magic-block restriction the generic
-`to_result` applies. Measurements taken after the transition were genuine
+`to_result` applies. Pre-transition measurements reclassified `ClassicalBiasedRes`
+by `HybridRuntime`'s collapse detection are excluded here by the same
+`isa_variant(mr, QuantumRes)` filter that excludes them from
+`to_result(::CompilerState{<:Union{SimRuntime,DummyRuntime,HybridRuntime,DummyHybridRuntime}})`. Measurements taken after the transition were genuine
 whole-register `StabilizerRuntime` projections, so they're kept as-is, same
 as the plain `AbstractStabilizerRuntime` method. The result tableau keeps the
 data qubits plus whichever magic qubits were already live in `quantum_memory`

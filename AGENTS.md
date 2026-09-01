@@ -78,11 +78,21 @@ The `preprocess_circuit` function transforms circuits through stages:
   `to_result`/`QPU_workload` extraction work the same way they do for
   `StabilizerRuntime`; only the outcome bias is not physically faithful
 - `HybridRuntime` - Starts out simulating the magic register like
-  `SimRuntime`, then converts in place into a `StabilizerRuntime` once
+  `SimRuntime`, then converts in place into a `HybridStabilizerRuntime`
+  (which behaves like `StabilizerRuntime` from that point on) once
   `maximum_measurement_support` activated magic qubits have been reached.
   `PBCCompiler.run` drives the conversion by calling `transition` after every
   measurement step. With `maximum_measurement_support = nothing` (the
-  default) it never converts and behaves exactly like `SimRuntime`
+  default) it never converts and behaves exactly like `SimRuntime`,
+  including `SimRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification
+  and `num_gadget_qubits`-based `to_result` sizing (both runtimes share the
+  same dispatch, not near-duplicate methods) — pre-transition only; after
+  converting it behaves like `StabilizerRuntime` instead, with no collapse
+  concept
+- `DummyHybridRuntime` - Cheap stand-in for `HybridRuntime`, mirroring how
+  `DummyRuntime` stands in for `SimRuntime`: same conversion control flow,
+  same `collapsed`/`ClassicalBiasedRes` parity pre-transition, but coin-flips
+  outcomes instead of simulating the magic register
 - `CompilerState{R,T}` - Tracks measurement results, tableau, classical
   register, circuit, instruction pointer and runtime. Parameterized on the
   runtime and tableau types to keep the execution loop type stable
