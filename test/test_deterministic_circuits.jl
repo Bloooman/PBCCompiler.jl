@@ -8,7 +8,8 @@
 # the measured (-1)^result sign or the target bit flips on random shots.
 
 using PBCCompiler
-using PBCCompiler: Circuit, CircuitOp, ExpHalfPiPauli, parse_input, SimRuntime, StabilizerRuntime, HybridRuntime
+using PBCCompiler: Circuit, CircuitOp, ExpHalfPiPauli, parse_input, SimRuntime, StabilizerRuntime,
+    HybridRuntime, HybridStabilizerRuntime
 using Moshi.Data: isa_variant
 using QuantumClifford: @P_str, Stabilizer, single_z
 
@@ -27,20 +28,27 @@ the classical register. The two prep modes exercise different input paths:
 machinery, while `:tableau` passes the basis state via the `input_state`
 argument, routing it through the stabilizer-group sign handling. Both must agree.
 """
-function run_on_basis_input(body, bits, mode, rt=SimRuntime())
+function run_on_basis_input_state(body, bits, mode, rt)
     if mode == :gates
         prep = CircuitOp.Type[xgate(q) for (q, b) in enumerate(bits) if b]
-        state = PBCCompiler.run(Circuit([prep; body]), rt)
+        return PBCCompiler.run(Circuit([prep; body]), rt)
     else
-        state = PBCCompiler.run(Circuit(copy(body)), rt, basis_state(bits))
+        return PBCCompiler.run(Circuit(copy(body)), rt, basis_state(bits))
     end
+end
+
+function run_on_basis_input(body, bits, mode, rt=SimRuntime())
+    state = run_on_basis_input_state(body, bits, mode, rt)
     return collect(Bool, state.classical_register[1:length(bits)])
 end
 
 # Runtimes that simulate the magic register rather than coining outcomes: a
 # deterministic circuit must come out deterministic under each, on every shot.
 # HybridRuntime's default constructor never crosses its (nothing) conversion
-# threshold, so it behaves exactly like SimRuntime for the whole run.
+# threshold, so under SIMULATING_RUNTIMES it behaves exactly like SimRuntime
+# for the whole run. The "Toffoli/adder_n4 truth table survives mid-run
+# conversion" testset below separately covers HybridRuntime with a real
+# threshold, so the no-conversion and converts-mid-run cases are both tested.
 const SIMULATING_RUNTIMES = (SimRuntime, StabilizerRuntime, HybridRuntime)
 
 # DummyRuntime is excluded on purpose: it coins every quantum outcome at a fixed
@@ -96,6 +104,47 @@ end
     adder = parse_input(joinpath(FIXTURES, "adder_n4.qasm"))
     state = PBCCompiler.run(Circuit(copy(adder)), rt())
     @test collect(Bool, state.classical_register[1:4]) == Bool[1, 0, 0, 1]
+end
+
+# The testsets above only ever construct HybridRuntime with the zero-arg
+# constructor, whose maximum_measurement_support defaults to nothing --
+# transition() is then a guaranteed no-op (see src/logic.jl), so HybridRuntime
+# never actually converts into HybridStabilizerRuntime anywhere above; it's
+# just re-testing SimRuntime under a different type name. This testset gives
+# HybridRuntime a real threshold, chosen (empirically, per fixture) low enough
+# to force conversion partway through the circuit -- neither on the very
+# first gadget nor only after the last -- so both the pre-transition
+# (SimRuntime-style, magic-register-simulating) and post-transition
+# (StabilizerRuntime-style) code paths run within a single shot, and the
+# Pauli-correction handoff between them is what's under test.
+#
+# DummyHybridRuntime is deliberately excluded here for the same reason
+# DummyRuntime is excluded above: pre-transition it coin-flips outcomes at a
+# fixed bias rather than simulating the magic register, so it is not
+# expected to reproduce the truth table (confirmed: it doesn't).
+@testset "Toffoli truth table survives mid-run HybridRuntime conversion ($mode prep)" for mode in (:gates, :tableau)
+    ccx = parse_input(joinpath(FIXTURES, "toffoli3.qasm"))
+    for a in (false, true), b in (false, true), c in (false, true)
+        expected = Bool[a, b, xor(c, a & b)]
+        state = run_on_basis_input_state(ccx, [a, b, c], mode, HybridRuntime(4))
+        @test state.runtime isa HybridStabilizerRuntime
+        @test collect(Bool, state.classical_register[1:3]) == expected
+    end
+end
+
+@testset "adder_n4 truth table survives mid-run HybridRuntime conversion ($mode prep)" for mode in (:gates, :tableau)
+    adder = parse_input(joinpath(FIXTURES, "adder_n4.qasm"))
+    body = adder[3:end]
+    maj(x, y, z) = (x & y) | (x & z) | (y & z)
+    for cin in (false, true), a in (false, true), b in (false, true), d in (false, true)
+        expected = Bool[cin,
+                        xor(cin, a),
+                        xor(cin, a, b),
+                        xor(d, maj(cin, a, b))]
+        state = run_on_basis_input_state(body, [cin, a, b, d], mode, HybridRuntime(7))
+        @test state.runtime isa HybridStabilizerRuntime
+        @test collect(Bool, state.classical_register[1:4]) == expected
+    end
 end
 
 end
