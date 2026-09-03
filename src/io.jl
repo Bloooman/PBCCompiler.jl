@@ -48,6 +48,11 @@ not representable in the Clifford+T gate set.
 Registers are laid out consecutively in declaration order: with `qreg a[2]; qreg b[1];`,
 `a[0]`→qubit 1, `a[1]`→qubit 2, `b[0]`→qubit 3, and likewise for classical registers.
 
+A gate argument may name a whole register (e.g. `x b;` with `qreg b[4];`)
+instead of a single element: it broadcasts elementwise, expanding to one gate
+call per register element (`x b[0]; x b[1]; ...`), the standard OpenQASM
+broadcasting rule. Broadcast arguments on the same line must share one size.
+
 QASM 2.0 measure: `measure q[i] -> c[j]` → `Measurement(P"Z", bit(c[j]), [qubit(q[i])])`
 QASM 3.0 measure: `meas[j] = measure q[i]` → `Measurement(P"Z", bit(meas[j]), [qubit(q[i])])`
 
@@ -67,6 +72,7 @@ function parse_input(filepath::String)::Circuit
     # silently collapsing onto the same qubits/bits
     qubit_map    = Dict{String,Int}()   # "q[0]" -> 1-based global qubit index
     bit_map      = Dict{String,Int}()   # "c[0]" -> 1-based global bit index
+    register_sizes = Dict{String,Int}() # "q" -> declared size, for broadcast gate args
     qubit_offset = 0
     bit_offset   = 0
     has_measure = false
@@ -86,6 +92,7 @@ function parse_input(filepath::String)::Circuit
         m === nothing && (m = match(r"^qubit\[(\d+)\]\s+(\w+)", line);
                           m === nothing || (m = (m[2], m[1])))
         if m !== nothing
+            register_sizes[String(m[1])] = parse(Int, m[2])
             qubit_offset = _declare_register!(qubit_map, String(m[1]), parse(Int, m[2]), qubit_offset)
             continue
         end
@@ -117,13 +124,13 @@ function parse_input(filepath::String)::Circuit
         m = match(r"^(\w+)\s*\([^)]*\)\s+\w+\[", line)
         m !== nothing && error("Parameterized gate '$(m[1])' is not supported — only Clifford+T gates are representable")
 
-        # gate application: name q[i] or name q[i],q[j] or name q[i],q[j],q[k]
+        # gate application: name q[i] or name q[i],q[j] or name reg (broadcast)
         m = match(r"^(\w+)\s+(.+);$", line)
         if m !== nothing
-            refs = [String(r.match) for r in eachmatch(r"\w+\[\d+\]", m[2])]
-            if !isempty(refs)
-                qubits = [_resolve(qubit_map, ref, "qubit", line) for ref in refs]
-                _apply_gate!(circuit, String(m[1]), qubits, gate_defs)
+            argstrs = [String(strip(a)) for a in split(m[2], ',') if !isempty(strip(a))]
+            if !isempty(argstrs) && all(a -> occursin(r"^\w+(\[\d+\])?$", a), argstrs)
+                _apply_broadcast_gate!(circuit, String(m[1]), argstrs, qubit_map, register_sizes,
+                                        gate_defs, line)
                 continue
             end
         end
@@ -135,6 +142,42 @@ function parse_input(filepath::String)::Circuit
         end
     end
     return circuit
+end
+
+"""
+Expand one gate-application line's argument list into concrete qubit indices
+and apply `name` for each. An argument is either `reg[idx]` (a single qubit)
+or a bare register name, which broadcasts elementwise across the register
+(the standard OpenQASM broadcasting rule): `x b;` with `qreg b[4];` becomes
+four separate applications of `x` to `b[0]`, `b[1]`, `b[2]`, `b[3]`. All
+bare-register arguments on one line must share the same declared size.
+"""
+function _apply_broadcast_gate!(circuit::Circuit, name::String, argstrs::Vector{String},
+                                 qubit_map::Dict{String,Int}, register_sizes::Dict{String,Int},
+                                 gate_defs::Dict{String,GateDef}, line::AbstractString)
+    reg_args = filter(a -> !occursin('[', a), argstrs)
+    if isempty(reg_args)
+        qubits = [_resolve(qubit_map, a, "qubit", line) for a in argstrs]
+        _apply_gate!(circuit, name, qubits, gate_defs)
+        return
+    end
+
+    sizes = unique(_resolve_register_size(register_sizes, a, line) for a in reg_args)
+    length(sizes) == 1 ||
+        error("Broadcast gate '$name' in line '$line' mixes registers of different sizes")
+    for i in 0:sizes[1]-1
+        qubits = [occursin('[', a) ? _resolve(qubit_map, a, "qubit", line) :
+                                      _resolve(qubit_map, "$a[$i]", "qubit", line)
+                  for a in argstrs]
+        _apply_gate!(circuit, name, qubits, gate_defs)
+    end
+end
+
+"""Resolve a bare register name to its declared size, erroring if it was never declared."""
+function _resolve_register_size(register_sizes::Dict{String,Int}, name::AbstractString, line::AbstractString)
+    haskey(register_sizes, name) ||
+        error("Unknown register '$name' in line '$line' — register not declared")
+    return register_sizes[name]
 end
 
 """
