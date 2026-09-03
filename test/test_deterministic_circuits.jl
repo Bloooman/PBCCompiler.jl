@@ -106,6 +106,73 @@ end
     @test collect(Bool, state.classical_register[1:4]) == Bool[1, 0, 0, 1]
 end
 
+# adder_n10.qasm (QASMBench, Cuccaro-style 4-bit ripple-carry adder) maps
+# |cin, a[4], b[4]⟩ ↦ |cin, sum[4], cout⟩ where sum/cout are the 5-bit
+# ripple-carry sum cin+a+b, stored into b, with the carry into cout. Registers
+# are laid out cin=1, a[4]=2:5, b[4]=6:9, cout=10.
+maj_carry(cin, a, b) = Int(cin) + a + b  # a,b as 4-bit integers (bit i = 2^i)
+
+# Full exhaustion over (cin,a,b) is 2*16*16 = 512 combos; timed against the
+# full test suite (baseline ~1m22s) it drove a single run past 20 minutes
+# without finishing (3 runtimes * 2 prep modes * 512 combos), so this is a
+# curated case list instead: every single input bit isolated (exercises each
+# position of the ripple chain independently), the two full-ripple carry
+# chains, the all-ones overflow case, and a few mixed inputs -- covering the
+# same bug classes (per-bit sign errors, carry propagation, overflow) at a
+# small fraction of the cost.
+const ADDER_N10_CASES = [
+    (false, 0, 0), (true, 0, 0),                      # zero / bare carry-in
+    (false, 1, 0), (false, 2, 0), (false, 4, 0), (false, 8, 0),   # isolate each a bit
+    (true, 1, 0), (true, 2, 0), (true, 4, 0), (true, 8, 0),
+    (false, 0, 1), (false, 0, 2), (false, 0, 4), (false, 0, 8),   # isolate each b bit
+    (true, 0, 1), (true, 0, 2), (true, 0, 4), (true, 0, 8),
+    (false, 15, 1), (false, 1, 15), (true, 15, 1), (true, 1, 15), # full ripple chains
+    (false, 15, 15), (true, 15, 15),                              # overflow (total=30,31)
+    (false, 9, 6), (true, 5, 10), (false, 3, 12), (true, 13, 2),  # mixed
+]
+
+@testset "adder_n10 truth table ($(nameof(rt)), $mode prep)" for rt in SIMULATING_RUNTIMES,
+                                                                mode in (:gates, :tableau)
+    adder = parse_input(joinpath(FIXTURES, "adder_n10.qasm"))
+
+    # The fixture is kept verbatim, so it starts with its own input prep
+    # `x a[0]; x b;`, which (after the io.jl broadcast-gate fix) expands to
+    # 5 single-qubit X gates: a[0] (qubit 2), then b[0..3] (qubits 6-9).
+    # Verify those are the first five ops, then drop them so the case list
+    # below controls the input state itself.
+    prep_qubits = [2, 6, 7, 8, 9]
+    for (i, q) in enumerate(prep_qubits)
+        @test isa_variant(adder[i], CircuitOp.ExpHalfPiPauli) &&
+              adder[i].pauli == P"X" && adder[i].qubits == [q]
+    end
+    body = adder[length(prep_qubits)+1:end]
+
+    for (cin, a, b) in ADDER_N10_CASES
+        total = maj_carry(cin, a, b)
+        expected = Bool[(total >> i) & 1 == 1 for i in 0:3]
+        push!(expected, total >= 16)  # carry out
+        abits = Bool[(a >> i) & 1 == 1 for i in 0:3]
+        bbits = Bool[(b >> i) & 1 == 1 for i in 0:3]
+        # cout (qubit 10) has no prep of its own -- pad with its |0⟩ default so
+        # :tableau mode's basis_state spans all 10 circuit qubits, not just
+        # the 9 that are actually prepped.
+        input_bits = [cin; abits; bbits; false]
+        # 9 input bits (cin+a+b) but only 5 output bits (ans[0..4]), so
+        # run_on_basis_input's `1:length(bits)` slice (input-count == output-
+        # count, true for Toffoli/adder_n4 but not here) can't be reused.
+        state = run_on_basis_input_state(body, input_bits, mode, rt())
+        @test collect(Bool, state.classical_register[1:5]) == expected
+    end
+end
+
+# The unmodified file (input cin=0, a=0001, b=1111) must give sum=10000: b
+# ends up all-zero with the carry-out set.
+@testset "adder_n10 verbatim file ($(nameof(rt)))" for rt in SIMULATING_RUNTIMES
+    adder = parse_input(joinpath(FIXTURES, "adder_n10.qasm"))
+    state = PBCCompiler.run(Circuit(copy(adder)), rt())
+    @test collect(Bool, state.classical_register[1:5]) == Bool[0, 0, 0, 0, 1]
+end
+
 # The testsets above only ever construct HybridRuntime with the zero-arg
 # constructor, whose maximum_measurement_support defaults to nothing --
 # transition() is then a guaranteed no-op (see src/logic.jl), so HybridRuntime
@@ -144,6 +211,29 @@ end
         state = run_on_basis_input_state(body, [cin, a, b, d], mode, HybridRuntime(7))
         @test state.runtime isa HybridStabilizerRuntime
         @test collect(Bool, state.classical_register[1:4]) == expected
+    end
+end
+
+# adder_n10 activates 56 magic qubits over a full run; threshold 28 was
+# checked empirically to force conversion partway through (not on the first
+# gadget, not only after the last) regardless of input. Uses the same curated
+# ADDER_N10_CASES as the truth-table testset above, for the same cost reasons.
+@testset "adder_n10 truth table survives mid-run HybridRuntime conversion ($mode prep)" for mode in (:gates, :tableau)
+    adder = parse_input(joinpath(FIXTURES, "adder_n10.qasm"))
+    body = adder[6:end]
+    for (cin, a, b) in ADDER_N10_CASES
+        total = maj_carry(cin, a, b)
+        expected = Bool[(total >> i) & 1 == 1 for i in 0:3]
+        push!(expected, total >= 16)
+        abits = Bool[(a >> i) & 1 == 1 for i in 0:3]
+        bbits = Bool[(b >> i) & 1 == 1 for i in 0:3]
+        # cout (qubit 10) has no prep of its own -- pad with its |0⟩ default so
+        # :tableau mode's basis_state spans all 10 circuit qubits, not just
+        # the 9 that are actually prepped.
+        input_bits = [cin; abits; bbits; false]
+        state = run_on_basis_input_state(body, input_bits, mode, HybridRuntime(28))
+        @test state.runtime isa HybridStabilizerRuntime
+        @test collect(Bool, state.classical_register[1:5]) == expected
     end
 end
 
