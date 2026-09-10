@@ -108,29 +108,29 @@ abstract type AbstractRuntime end
 Runtime that simulates magic-state measurements with QuantumClifford's
 `GeneralizedStabilizer`.
 
-A gadget measurement that touches only one magic qubit and finds it not yet
-`activated` needs no real quantum work: an isolated magic qubit's statistics
+A gadget measurement that touches only one gadget qubit and finds it not yet
+`activated` needs no real quantum work: an isolated gadget qubit's statistics
 never entangled with the live register, so its outcome is a classical bias,
 not a quantum one. This runtime detects that case structurally (see
 `_mark_collapsed!`) and records it as `ClassicalBiasedRes` instead of
 `QuantumRes`, so `QPU_workload`/`to_result` reflect only measurements that
-actually needed the magic register.
+actually needed the gadget register.
 """
 struct SimRuntime{Q} <: AbstractRuntime
     # Q is the concrete GeneralizedStabilizer instantiation (or Nothing before a
-    # magic register exists). Declaring the field as the unparameterized
+    # gadget register exists). Declaring the field as the unparameterized
     # `GeneralizedStabilizer` instead would make it non-concrete, which is
     # enough on its own to infer `run` and `do_quantum_step` as `Any`.
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Q
     """
-    Magic qubits whose deferred T gate has already been applied. The magic
+    Gadget qubits whose deferred T gate has already been applied. The gadget
     register starts as the stabilizer state |+>^n and each T gate is applied
     lazily, right before the first measurement touching its qubit, keeping the
     chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
     """
     activated::Union{BitVector, Nothing}
-    """Magic qubits whose measurement has been reclassified as a classical
+    """Gadget qubits whose measurement has been reclassified as a classical
     bias rather than a genuine quantum outcome -- see the struct docstring."""
     collapsed::Union{BitVector, Nothing}
     """Number of non-zero elements in the density matrix at each simulation"""
@@ -144,12 +144,12 @@ projecting the full register (no anticommuting coin-flip branch)."""
 abstract type AbstractStabilizerRuntime <: AbstractRuntime end
 
 """
-Runtime that simulates the full register — data qubits and magic qubits together —
+Runtime that simulates the full register — input qubits and gadget qubits together —
 with QuantumClifford's `GeneralizedStabilizer`.
 
 Unlike [`SimRuntime`](@ref) — whose `quantum_memory` is the same full-width
-register, but whose data-qubit part sits inert and unmeasured (the sign of the
-data part is instead read off `state.stabilizer_group`) — this runtime
+register, but whose input-qubit part sits inert and unmeasured (the sign of the
+input part is instead read off `state.stabilizer_group`) — this runtime
 performs an actual quantum measurement for every non-deterministic outcome,
 and resolves an anticommuting stabilizer row by projecting rather than by
 splicing compensating rotations into the circuit. It therefore never produces
@@ -158,8 +158,8 @@ a `ClassicalRandomRes` — every non-deterministic outcome is recorded as a
 
 That is the intended design, not a defect. The consequence is that
 `QuantumRes` here means "not determined by the stabilizer group", which is a
-broader class than `SimRuntime`'s "needs the magic register": a measurement that
-is random purely because of the data qubits is a `QuantumRes` under this runtime
+broader class than `SimRuntime`'s "needs the gadget register": a measurement that
+is random purely because of the input qubits is a `QuantumRes` under this runtime
 and a `ClassicalRandomRes` under `SimRuntime`. Expect a substantially larger
 `QPU_workload` as a result (roughly 5x on random small circuits). Measurement
 *outcomes* are unaffected and agree with `SimRuntime`; only the classification
@@ -171,7 +171,7 @@ struct StabilizerRuntime{Q} <: AbstractStabilizerRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Q
     """
-    Magic qubits whose deferred T gate has already been applied. The magic
+    Gadget qubits whose deferred T gate has already been applied. The gadget
     register starts as the stabilizer state |+>^n and each T gate is applied
     lazily, right before the first measurement touching its qubit, keeping the
     chi-expansion of `quantum_memory` at 4^(live qubits) instead of 4^(total)
@@ -184,17 +184,17 @@ end
 StabilizerRuntime() = StabilizerRuntime(nothing, nothing, Int[])
 
 """Runtime that replaces quantum measurements with classical coin flips of a
-fixed bias, while still tracking which magic qubits a measurement touched
+fixed bias, while still tracking which gadget qubits a measurement touched
 (mirrors `SimRuntime.activated`) and which have collapsed to a classical bias
 (mirrors `SimRuntime.collapsed`) for parity/diagnostics."""
 struct DummyRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
-    """Magic qubits touched by a measurement so far, mirroring
+    """Gadget qubits touched by a measurement so far, mirroring
     `SimRuntime.activated`; `nothing` before `build_rt_data` runs (or when the
     circuit has no gadgets)."""
     activated::Union{BitVector, Nothing}
-    """Magic qubits reclassified as a classical bias, mirroring
+    """Gadget qubits reclassified as a classical bias, mirroring
     `SimRuntime.collapsed`."""
     collapsed::Union{BitVector, Nothing}
 end
@@ -203,7 +203,7 @@ DummyRuntime() = DummyRuntime(0.5, nothing, nothing)
 DummyRuntime(p::Float64) = DummyRuntime(p, nothing, nothing)
 
 """Cheap stand-in for `StabilizerRuntime`: same control flow (no anticommuting
-coin-flip branch), same `activated` bookkeeping of which magic qubits a
+coin-flip branch), same `activated` bookkeeping of which gadget qubits a
 measurement touched, but replaces the actual quantum measurement with a
 classical coin flip of a fixed bias instead of simulating the register.
 `to_result`/`QPU_workload` extraction work the same way they do for
@@ -211,7 +211,7 @@ classical coin flip of a fixed bias instead of simulating the register.
 struct DummyStabilizerRuntime <: AbstractStabilizerRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
-    """Magic qubits touched by a measurement so far, mirroring
+    """Gadget qubits touched by a measurement so far, mirroring
     `StabilizerRuntime.activated`; `nothing` before `build_rt_data` runs."""
     activated::Union{BitVector, Nothing}
 end
@@ -220,27 +220,27 @@ DummyStabilizerRuntime() = DummyStabilizerRuntime(0.5, nothing)
 DummyStabilizerRuntime(p::Float64) = DummyStabilizerRuntime(p, nothing)
 
 """
-Runtime that starts out simulating the magic register like `SimRuntime`, then
+Runtime that starts out simulating the gadget register like `SimRuntime`, then
 converts in place into a `HybridStabilizerRuntime` once total qubit support
-(input qubits plus activated magic qubits) reaches `maximum_measurement_support`.
+(input qubits plus activated gadget qubits) reaches `maximum_measurement_support`.
 
 `PBCCompiler.run` drives this conversion by calling `transition` after every
 measurement step. With `maximum_measurement_support = nothing` (the default),
 it never converts and behaves exactly like `SimRuntime` for the whole run,
 including `SimRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification of
-an isolated magic qubit's first touch.
+an isolated gadget qubit's first touch.
 """
 struct HybridRuntime{Q} <: AbstractRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Q
-    """Magic qubits whose deferred T gate has already been applied, mirroring `SimRuntime.activated`"""
+    """Gadget qubits whose deferred T gate has already been applied, mirroring `SimRuntime.activated`"""
     activated::Union{BitVector, Nothing}
-    """Magic qubits whose measurement has been reclassified as a classical
+    """Gadget qubits whose measurement has been reclassified as a classical
     bias rather than a genuine quantum outcome, mirroring `SimRuntime.collapsed`."""
     collapsed::Union{BitVector, Nothing}
     """Number of non-zero elements in the density matrix at each simulation"""
     invsparsity_history::Vector{Int}
-    """Total qubit support (input qubits plus activated magic qubits) at which this runtime converts into a `HybridStabilizerRuntime`; `nothing` means never convert"""
+    """Total qubit support (input qubits plus activated gadget qubits) at which this runtime converts into a `HybridStabilizerRuntime`; `nothing` means never convert"""
     maximum_measurement_support::Union{Int, Nothing}
 end
 
@@ -251,7 +251,7 @@ HybridRuntime(m::Int64) = HybridRuntime(nothing, nothing, nothing, Int[], m)
 Runtime a `HybridRuntime` converts into once it crosses its
 `maximum_measurement_support` threshold. Behaves exactly like
 `StabilizerRuntime` from that point on, but remembers the transition
-snapshot [`to_result`](@ref) needs: which magic qubits were already live in
+snapshot [`to_result`](@ref) needs: which gadget qubits were already live in
 `quantum_memory`, and how many measurements had been resolved, at the moment
 of conversion. Without this snapshot that information would be
 unrecoverable -- `activated` keeps being mutated by every measurement for
@@ -261,7 +261,7 @@ once the run finishes.
 struct HybridStabilizerRuntime{Q} <: AbstractStabilizerRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
     quantum_memory::Q
-    """Magic qubits whose deferred T gate has already been applied, mirroring `StabilizerRuntime.activated`"""
+    """Gadget qubits whose deferred T gate has already been applied, mirroring `StabilizerRuntime.activated`"""
     activated::Union{BitVector, Nothing}
     """Number of non-zero elements in the density matrix at each simulation"""
     invsparsity_history::Vector{Int}
@@ -276,20 +276,20 @@ Cheap stand-in for `HybridRuntime`: same conversion control flow (starts out
 coin-flipping like `DummyRuntime`, then converts in place into a
 `DummyHybridStabilizerRuntime` once total qubit support reaches
 `maximum_measurement_support`), but replaces the actual quantum measurement
-with a classical coin flip of a fixed bias instead of simulating the magic
+with a classical coin flip of a fixed bias instead of simulating the gadget
 register. With `maximum_measurement_support = nothing` (the default) it never
 converts and behaves exactly like `DummyRuntime` for the whole run, including
 `DummyRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification of an
-isolated magic qubit's first touch.
+isolated gadget qubit's first touch.
 """
 struct DummyHybridRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
-    """Magic qubits touched by a measurement so far, mirroring `HybridRuntime.activated`"""
+    """Gadget qubits touched by a measurement so far, mirroring `HybridRuntime.activated`"""
     activated::Union{BitVector, Nothing}
-    """Magic qubits reclassified as a classical bias, mirroring `HybridRuntime.collapsed`."""
+    """Gadget qubits reclassified as a classical bias, mirroring `HybridRuntime.collapsed`."""
     collapsed::Union{BitVector, Nothing}
-    """Total qubit support (input qubits plus activated magic qubits) at which this runtime converts into a `DummyHybridStabilizerRuntime`; `nothing` means never convert"""
+    """Total qubit support (input qubits plus activated gadget qubits) at which this runtime converts into a `DummyHybridStabilizerRuntime`; `nothing` means never convert"""
     maximum_measurement_support::Union{Int, Nothing}
 end
 
@@ -305,7 +305,7 @@ snapshot [`to_result`](@ref) needs, mirroring `HybridStabilizerRuntime`.
 struct DummyHybridStabilizerRuntime <: AbstractStabilizerRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""
     p1_outcome_probs::Float64
-    """Magic qubits touched by a measurement so far, mirroring `DummyStabilizerRuntime.activated`"""
+    """Gadget qubits touched by a measurement so far, mirroring `DummyStabilizerRuntime.activated`"""
     activated::Union{BitVector, Nothing}
     """`activated`, snapshotted at the moment of transition"""
     activated_at_transition::BitVector
@@ -333,7 +333,7 @@ Base.@kwdef struct CompilerState{R<:AbstractRuntime, T<:MixedDestabilizer}
     measurement_results::Vector{MeasurementResult.Type}
     """
     MixedDestabilizer tableau that describes the current quantum state
-    It spans n qubits where n is the number of total qubits (magic and stabilizer state qubits)
+    It spans n qubits where n is the number of total qubits (gadget and input qubits)
     Its rank is below n before compilation is finished; the destabilizer half
     makes measurement projections cheap (no re-canonicalization per measurement)
     """
@@ -362,7 +362,7 @@ not: `activated` is set element-wise (and, for the runtimes with a
 `quantum_memory`, `quantum_memory` is projected in place and
 `invsparsity_history` is appended to). Sharing any of those between two
 states makes the second one skip its deferred T gate (or, for the dummies,
-misreport which magic qubits were touched) — a silently wrong outcome with no
+misreport which gadget qubits were touched) — a silently wrong outcome with no
 error.
 """
 Base.copy(rt::AbstractRuntime) = rt
@@ -399,11 +399,11 @@ end
 struct CompilationResult
     """Vector that holds all MeasurementResult in temporal order -- first measurement result is the first CircuitOp.Measurement being measured"""
     measurement_results::Vector{MeasurementResult.Type}
-    """Joint Pauli measurements that must be executed on the QPU, restricted to the magic-state qubits"""
+    """Joint Pauli measurements that must be executed on the QPU, restricted to the gadget qubits"""
     QPU_workload::Vector{MeasurementResult.Type}
     """
     Stabilizer object that describes current quantum state
-    It has n columns where n is the number of total qubits (magic and stabilizer state qubits)
+    It has n columns where n is the number of total qubits (gadget and input qubits)
     The tableau is not square (full-rank) before compilation is finished
     """
     stabilizer_group::Stabilizer

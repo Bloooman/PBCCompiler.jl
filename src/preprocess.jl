@@ -113,10 +113,10 @@ end
 Function that replace a non-Clifford circuit operation with BitConditional CircuitOps
 Each BitConditional CircuitOp contains a gadget(a set of four consecutive CircuitOps) for pi/8 rotation implementation:
     Realize pi/8 rotation by consuming a |T ⟩ ancilla state
-    perform a joint measurement P ⊗ Z between data and ancilla,
+    perform a joint measurement P ⊗ Z between the input qubits and ancilla,
     then apply a conditional Clifford correction
 """
-function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_bit::Int, num_magic_state::Int)
+function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_bit::Int, num_gadgets::Int)
     if isa_variant(op,CircuitOp.ExpEighPiPauli)
         # `paulis` is positional in `op.qubits` while `affectedqubits` sorts, so
         # the letters must be permuted alongside the qubits or they detach from
@@ -127,15 +127,15 @@ function gadgetize(op::CircuitOp.Type, num_input_qubit::Int, num_bit::Int, num_m
         perm=sortperm(op.qubits)
         Q=op.qubits[perm]
         P=paulis(op)[perm]
-        magic_state=[num_input_qubit+num_magic_state]
+        gadget_qubit=[num_input_qubit+num_gadgets]
         pauli=tensor(P,P"Z")
-        qubit=[Q;magic_state]
-        magic_bit_1=num_bit+2*num_magic_state-1
-        magic_bit_2=num_bit+2*num_magic_state
-        measurement_1=CircuitOp.Measurement(pauli,magic_bit_1,qubit)
-        measurement_2=CircuitOp.Measurement(P"X", magic_bit_2, magic_state)
-        bitconditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),magic_bit_1)
-        bitconditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),magic_bit_2)
+        qubit=[Q;gadget_qubit]
+        gadget_bit_1=num_bit+2*num_gadgets-1
+        gadget_bit_2=num_bit+2*num_gadgets
+        measurement_1=CircuitOp.Measurement(pauli,gadget_bit_1,qubit)
+        measurement_2=CircuitOp.Measurement(P"X", gadget_bit_2, gadget_qubit)
+        bitconditional_1=CircuitOp.BitConditional(CircuitOp.ExpQuatPiPauli(P,Q),gadget_bit_1)
+        bitconditional_2=CircuitOp.BitConditional(CircuitOp.ExpHalfPiPauli(P,Q),gadget_bit_2)
         gadget=[measurement_1, measurement_2, bitconditional_1, bitconditional_2]
         return gadget
     else
@@ -235,10 +235,10 @@ end
 """
     remove_nonclifford(circuit::Circuit)->Nothing
 
-Replace every non-Clifford rotation with its magic-state gadget (see `gadgetize`).
+Replace every non-Clifford rotation with its gadget (see `gadgetize`).
 
-Magic qubits are numbered in the order their gadget is consumed at runtime --
-the earliest non-Clifford gate in the circuit gets magic qubit 1, and so on --
+Gadget qubits are numbered in the order their gadget is consumed at runtime --
+the earliest non-Clifford gate in the circuit gets gadget qubit 1, and so on --
 so the register grows in temporal order as a circuit runs.
 """
 function remove_nonclifford(circuit::Circuit)
@@ -247,15 +247,15 @@ function remove_nonclifford(circuit::Circuit)
     # Allocate gadget bits above the highest bit already in use; using the qubit
     # count alone would collide with user bits whenever bit indices exceed it
     num_bit=max(get_bit_number(circuit), num_input_qubit)
-    # Magic-qubit numbering is assigned by forward position (earliest gate ->
+    # Gadget-qubit numbering is assigned by forward position (earliest gate ->
     # smallest index) up front, independent of the splice loop below, which
     # must run rightmost-first so replacing position `i` with a
     # longer/shorter gadget never invalidates the not-yet-visited (smaller)
     # indices still to come.
-    magic_state_number = Dict(idx => rank for (rank, idx) in enumerate(indices))
+    gadget_number = Dict(idx => rank for (rank, idx) in enumerate(indices))
     for i in reverse(indices)
         op=circuit[i]
-        gadget = gadgetize(op, num_input_qubit, num_bit, magic_state_number[i])
+        gadget = gadgetize(op, num_input_qubit, num_bit, gadget_number[i])
         splice!(circuit, i, gadget)
     end
 end

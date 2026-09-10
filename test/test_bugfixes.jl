@@ -106,7 +106,7 @@ end
     result = to_result(state)
     g_all = get_graph(result; qubits=:all)
     @test nv(g_all) == size(result.stabilizer_group, 2)
-    g_qpu = get_graph(result; qubits=:magic, n_input=2)
+    g_qpu = get_graph(result; qubits=:gadget, n_input=2)
     @test nv(g_qpu) >= 0  # smoke: quantum-only graph builds without error
 
     g_std = weight_std_graph(circuit, DummyRuntime(); num_shots = 5)
@@ -115,7 +115,7 @@ end
 
 @testset "quantum measurements act on absolute qubit positions" begin
     # A leading T gate keeps its partial qubit list ([2]) through preprocessing,
-    # so its gadget measurement Pauli must be embedded before magic-qubit slicing;
+    # so its gadget measurement Pauli must be embedded before gadget-qubit slicing;
     # unembedded, the slice silently read out-of-bounds as identity
     circuit = Circuit([
         ExpEighPiPauli(P"Z", [2]),
@@ -134,11 +134,11 @@ end
                      state.measurement_results)
     @test !isempty(quantum)
     @test all(length(mr.pauli) == width for mr in quantum)
-    # Each gadget measurement must touch its magic qubit (never sliced to identity)
-    magicqubits = width - num_gadget_qubits(state.runtime) + 1 : width
+    # Each gadget measurement must touch its gadget qubit (never sliced to identity)
+    gadgetqubits = width - num_gadget_qubits(state.runtime) + 1 : width
     for mr in quantum
-        magic_p = mr.pauli[magicqubits]
-        @test any(magic_p[i] != (false, false) for i in 1:length(magic_p))
+        gadget_p = mr.pauli[gadgetqubits]
+        @test any(gadget_p[i] != (false, false) for i in 1:length(gadget_p))
     end
 end
 
@@ -265,7 +265,7 @@ end
 end
 
 @testset "magic-state count matches gadgets in the executed circuit" begin
-    # Leading and trailing T gates: exactly two gadgets, two magic qubits
+    # Leading and trailing T gates: exactly two gadgets, two gadget qubits
     circuit = Circuit([
         ExpEighPiPauli(P"Z", [2]),
         ExpQuatPiPauli(P"X", [1]),
@@ -281,10 +281,10 @@ end
 @testset "deferred T fires when a gadget's support is not the full register" begin
     # A pi/8 rotation with no Clifford ahead of it reaches `gadgetize` with its
     # original (partial) qubit list, so the gadget measurement's support is
-    # [1, magic] rather than the full 1:width. The lazy-T activation must still
-    # find the magic qubit. Selecting it by position within `op.qubits` instead
+    # [1, gadget] rather than the full 1:width. The lazy-T activation must still
+    # find the gadget qubit. Selecting it by position within `op.qubits` instead
     # of by value yields an empty selection here and silently skips the T,
-    # leaving the magic qubit in |+>. Circuits whose rotations all get conjugated
+    # leaving the gadget qubit in |+>. Circuits whose rotations all get conjugated
     # to full width (toffoli3, adder_n4) mask this: there position and value
     # coincide, so those fixtures cannot catch it.
     input = Stabilizer([P"X_", P"_Z"])          # |+>|0>
@@ -298,7 +298,7 @@ end
     end
 
     # T|+> measured along X gives P(-1) = sin^2(pi/8) ~ 0.1464. With the T
-    # skipped the magic qubit stays |+> and the frequency comes out ~0.25, far
+    # skipped the gadget qubit stays |+> and the frequency comes out ~0.25, far
     # outside the tolerance below (~5 sigma at this shot count).
     nshots = 1000
     for rt in (SimRuntime, StabilizerRuntime)
@@ -317,7 +317,7 @@ end
 
     meas = gadget[1]
     @test meas.qubits == [1, 2, 3]
-    @test meas.pauli == P"XZZ"          # X on q1, Z on q2, Z on the magic qubit
+    @test meas.pauli == P"XZZ"          # X on q1, Z on q2, Z on the gadget qubit
 
     # The conditional corrections carry the same Pauli and must agree with it
     for correction in (gadget[3], gadget[4])
@@ -353,8 +353,8 @@ end
 end
 
 @testset "input states must be fully stabilized" begin
-    # The gadget path factors each measurement into a data part and a magic part
-    # and needs the data part to have a definite eigenvalue, which only holds at
+    # The gadget path factors each measurement into an input part and a gadget part
+    # and needs the input part to have a definite eigenvalue, which only holds at
     # full rank. Underdetermined states used to get through validation and fail
     # much later -- either inside `embed` while padding the generators, or with
     # "no definite eigenvalue" from within a gadget measurement.
@@ -427,7 +427,7 @@ end
 
 @testset "StabilizerRuntime on circuits that compile to no gadgets" begin
     # `activated` used to be `nothing` whenever the preprocessed circuit added no
-    # magic qubits, and both `quantum_measurement` and `to_result` took its
+    # gadget qubits, and both `quantum_measurement` and `to_result` took its
     # `length` unconditionally -- MethodError: length(::Nothing). It hit roughly a
     # third of random 4-qubit circuits, not just hand-written Clifford ones.
     clifford_only() = Circuit([ExpQuatPiPauli(P"X", [1]), Measurement(P"Z", 1, [1])])
@@ -451,7 +451,7 @@ end
     @test dummy_state.classical_register[1] isa Bool
     @test isempty(dummy_state.runtime.activated)
 
-    # A circuit that *does* gadgetize still sizes its magic block correctly
+    # A circuit that *does* gadgetize still sizes its gadget block correctly
     with_gadget = Circuit([ExpEighPiPauli(P"Z", [1]), Measurement(P"Z", 1, [1])])
     @test length(run(with_gadget, StabilizerRuntime()).runtime.activated) == 1
     @test length(run(with_gadget, DummyStabilizerRuntime()).runtime.activated) == 1

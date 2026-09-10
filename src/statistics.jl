@@ -38,7 +38,7 @@ function get_distribution(input_circuit::Circuit, rt::R, input_state::Union{Stab
 end
 
 """Valid values for the `qubits` keyword of [`get_graph`](@ref)/[`get_hypergraph`](@ref)."""
-const QUBIT_VIEWS = (:all, :data, :magic)
+const QUBIT_VIEWS = (:all, :input, :gadget)
 
 """Valid values for the `variant` keyword of [`get_graph`](@ref)/[`get_hypergraph`](@ref)."""
 const RESULT_VARIANTS = (:all, :quantum, :determ, :random, :biased)
@@ -72,19 +72,19 @@ filter_variant(measurements, variant::Symbol) =
 `row_of(q)` maps a register qubit index to its vertex row, or `nothing` when
 the qubit is not included. `nrows` is the resulting number of vertices.
 
-`:data` and `:magic` are complementary and symmetric: each keeps its own
+`:input` and `:gadget` are complementary and symmetric: each keeps its own
 block's qubits as individual vertices (re-indexed from 1) and drops the
 other block entirely -- neither collapses multiple qubits onto one vertex.
-(The playground's plotting-only `--qubits data` view does collapse the magic
-block into a single lane for display; that collapsing is specific to
+(The playground's plotting-only `--qubits input` view does collapse the
+gadget block into a single lane for display; that collapsing is specific to
 plotting and intentionally not reproduced here, since it would conflate the
-magic block's resource footprint with whichever data qubit absorbed the
+gadget block's resource footprint with whichever input qubit absorbed the
 lane.)
 """
 function qubit_row_map(view::Symbol, n_input::Int, register_n::Int)
-    view === :all   && return (q -> (1 <= q <= register_n ? q : nothing), register_n)
-    view === :magic && return (q -> (q > n_input ? q - n_input : nothing), register_n - n_input)
-    view === :data  && return (q -> (q <= n_input ? q : nothing), n_input)
+    view === :all    && return (q -> (1 <= q <= register_n ? q : nothing), register_n)
+    view === :gadget && return (q -> (q > n_input ? q - n_input : nothing), register_n - n_input)
+    view === :input  && return (q -> (q <= n_input ? q : nothing), n_input)
     error("unknown qubit view $view; must be one of $(join(QUBIT_VIEWS, ", "))")
 end
 
@@ -112,35 +112,38 @@ select_measurements(measurements, row_of, register_n::Int) =
 Select the measurements to build an interaction graph/hypergraph from, and the
 vertex count to size it over.
 
-`qubits` picks the vertex rows (`:all` every register qubit, `:data` the data
-qubits alone, `:magic` the magic-state block alone -- both re-indexed from 1);
-`:data`/`:magic` require `n_input` (the data-qubit count), since
-`CompilationResult` does not record the data/magic split. A measurement
-becomes an edge/hyperedge only if its Pauli has support in the selected rows.
+`qubits` picks the vertex rows (`:all` every register qubit, `:input` the
+input qubits alone, `:gadget` the gadget-state block alone -- both
+re-indexed from 1); `:input`/`:gadget` require `n_input` (the input-qubit
+count), since `CompilationResult` does not record the input/gadget split. A
+measurement becomes an edge/hyperedge only if its Pauli has support in the
+selected rows.
 
 The register width used to size and bound this is `max(size(stabilizer_group,
 2), widest assigned measurement Pauli)`, not `size(stabilizer_group, 2)`
 alone: [`AbstractStabilizerRuntime`](@ref)'s `to_result`
-(`logic.jl`) slices `stabilizer_group` down to the data qubits before storing
-it in `CompilationResult`, so its tableau width alone is the *data*-qubit
-count, not the full register -- while `measurement_results` there keeps the
-original full-register Paulis. For [`SimRuntime`](@ref)/[`DummyRuntime`](@ref)
-results `stabilizer_group` is already full-register-width and this reduces to
-that width. Either way this sizes off `measurement_results`/`stabilizer_group`
-rather than trusting `QPU_workload`'s Pauli width, which is only
-magic-register-wide for `SimRuntime`/`DummyRuntime` results and
-full-register-wide for `AbstractStabilizerRuntime` results.
+(`logic.jl`) slices `stabilizer_group` down to the input qubits before
+storing it in `CompilationResult`, so its tableau width alone is the *input*-
+qubit count, not the full register -- while `measurement_results` there keeps
+the original full-register Paulis. For [`SimRuntime`](@ref)/
+[`DummyRuntime`](@ref) results `stabilizer_group` is already full-register-
+width and this reduces to that width. Either way this sizes off
+`measurement_results`/`stabilizer_group` rather than trusting
+`QPU_workload`'s Pauli width, which is only gadget-register-wide for
+`SimRuntime`/`DummyRuntime` results and full-register-wide for
+`AbstractStabilizerRuntime` results.
 
 `variant` independently restricts which `MeasurementResult` variant is
 eligible to become an edge/hyperedge (`:all`, `:quantum`, `:determ`,
 `:random`). Note this measurement-support view is drawn from
-`measurement_results`, not `QPU_workload`, so `qubits=:magic, variant=:quantum`
-approximates but does not exactly reproduce the old `quantum_only=true`
-selection -- see [`get_hypergraph`](@ref) for the precise difference.
+`measurement_results`, not `QPU_workload`, so `qubits=:gadget,
+variant=:quantum` approximates but does not exactly reproduce the old
+`quantum_only=true` selection -- see [`get_hypergraph`](@ref) for the precise
+difference.
 
 Returns `(measurements, num_vertices, row_of, register_n)`: `row_of` must be
 used to map each measurement's raw (full-register) qubit indices to vertex
-rows before building edges/hyperedges, since `:data`/`:magic` renumber
+rows before building edges/hyperedges, since `:input`/`:gadget` renumber
 qubits rather than using them directly.
 
 Shared by `get_graph` and `get_hypergraph`.
@@ -151,8 +154,8 @@ function _select_measurement_results(result::CompilationResult;
         error("qubits must be one of $(join(QUBIT_VIEWS, ", ")); got $qubits")
     variant in RESULT_VARIANTS ||
         error("variant must be one of $(join(RESULT_VARIANTS, ", ")); got $variant")
-    (qubits === :data || qubits === :magic) && n_input === nothing &&
-        throw(ArgumentError("qubits=$qubits requires n_input (the data-qubit count)"))
+    (qubits === :input || qubits === :gadget) && n_input === nothing &&
+        throw(ArgumentError("qubits=$qubits requires n_input (the input-qubit count)"))
     all_m = assigned_measurements(result)
     tableau_n = size(result.stabilizer_group, 2)
     register_n = max(tableau_n,
@@ -168,10 +171,10 @@ end
 Extract the qubit interaction graph from a `CompilationResult`.
 
 `qubits` selects which qubits become vertices: `:all` (default) every register
-qubit, `:data` the data qubits alone, `:magic` the
-magic-state block alone (re-indexed from 1). `:data`/`:magic` require
-`n_input`, the number of data qubits, since `CompilationResult` does not
-record the data/magic split. A measurement becomes an edge only if its Pauli
+qubit, `:input` the input qubits alone, `:gadget` the
+gadget-state block alone (re-indexed from 1). `:input`/`:gadget` require
+`n_input`, the number of input qubits, since `CompilationResult` does not
+record the input/gadget split. A measurement becomes an edge only if its Pauli
 has support among the selected qubits. `variant` independently restricts
 which `MeasurementResult` variant is eligible (`:all`, `:quantum`, `:determ`,
 `:random`).
@@ -179,15 +182,15 @@ which `MeasurementResult` variant is eligible (`:all`, `:quantum`, `:determ`,
 `qubits=:all` (the default) matches the old `quantum_only=false` default,
 sized off the register width computed by [`_select_measurement_results`](@ref)
 (not simply `size(result.stabilizer_group, 2)` -- see there for why).
-`qubits=:magic, variant=:quantum` is the closest equivalent to the old
+`qubits=:gadget, variant=:quantum` is the closest equivalent to the old
 `quantum_only=true`,
 but is not identical to it: unlike `QPU_workload`, this view is drawn from
 `measurement_results` filtered by qubit support, so for
 [`SimRuntime`](@ref)/[`DummyRuntime`](@ref) results it is a superset (weight-1
-magic Paulis that `to_result` absorbed locally are not in `QPU_workload` but
+gadget Paulis that `to_result` absorbed locally are not in `QPU_workload` but
 do show up here), and for [`AbstractStabilizerRuntime`](@ref) results the two
 are unrelated (`QPU_workload` there keeps full-register Paulis, including ones
-with no magic support at all, which this view drops).
+with no gadget support at all, which this view drops).
 """
 function get_graph(result::CompilationResult;
         qubits::Symbol=:all, n_input::Union{Int,Nothing}=nothing, variant::Symbol=:all)
@@ -298,26 +301,26 @@ end
 Extract the qubit interaction hypergraph from a `CompilationResult`'s
 `QPU_workload` -- the joint Pauli measurements that represent actual QPU work
 to be partitioned. Each `QPU_workload` entry becomes a hyperedge over the
-qubits its Pauli has support on, restricted to `1:num_data` where
-`num_data = nqubits(result.stabilizer_group)`; entries with no surviving
+qubits its Pauli has support on, restricted to `1:num_input` where
+`num_input = nqubits(result.stabilizer_group)`; entries with no surviving
 support are dropped rather than producing an empty hyperedge.
 
-The meaning of `num_data` and the restriction differ by runtime family
+The meaning of `num_input` and the restriction differ by runtime family
 (see `to_result` in `logic.jl`):
 - For [`SimRuntime`](@ref)/[`DummyRuntime`](@ref)/[`HybridRuntime`](@ref)
-  results, `QPU_workload` Paulis are already restricted to the magic-qubit
+  results, `QPU_workload` Paulis are already restricted to the gadget-qubit
   block and locally re-indexed (`1:num_gadgets`), while `stabilizer_group` is
-  full-register width, so `num_data` here is the full register size and the
-  `1:num_data` restriction is a no-op -- every entry survives unchanged, with
-  vertex indices meaning local magic-qubit position.
+  full-register width, so `num_input` here is the full register size and the
+  `1:num_input` restriction is a no-op -- every entry survives unchanged, with
+  vertex indices meaning local gadget-qubit position.
 - For [`AbstractStabilizerRuntime`](@ref) results, `QPU_workload` Paulis are
-  full-register width (data and magic qubits together) while
-  `stabilizer_group` is sliced to the data qubits alone, so `num_data` is the
-  data-qubit count and the restriction intentionally keeps only the
-  data-qubit part of each measurement's support, dropping the magic block.
+  full-register width (input and gadget qubits together) while
+  `stabilizer_group` is sliced to the input qubits alone, so `num_input` is
+  the input-qubit count and the restriction intentionally keeps only the
+  input-qubit part of each measurement's support, dropping the gadget block.
 """
 function get_hypergraph(result::CompilationResult)
-    num_data = nqubits(result.stabilizer_group)
+    num_input = nqubits(result.stabilizer_group)
     measurements = result.QPU_workload
     Paulis = [m.pauli for m in measurements]
     collected_edges = Vector{Set{Int}}()
@@ -328,7 +331,7 @@ function get_hypergraph(result::CompilationResult)
     J = Int[]
     i = 1
     for row in collected_edges
-        filtered_row = filter(x -> x <= num_data, row)
+        filtered_row = filter(x -> x <= num_input, row)
         if !isempty(filtered_row)
             append!(I, filtered_row)
             col = fill(i, length(filtered_row))
@@ -337,7 +340,7 @@ function get_hypergraph(result::CompilationResult)
         end
     end
     V = Int.(ones(length(I)))
-    A = sparse(I, J, V, num_data, i - 1)
+    A = sparse(I, J, V, num_input, i - 1)
     h = KaHyPar.HyperGraph(A)
     return (A, h)
 end

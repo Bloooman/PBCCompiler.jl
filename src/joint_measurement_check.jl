@@ -21,8 +21,8 @@ function validate_input(circuit::Circuit, input::Stabilizer)
     if get_circuit_width(circuit) < num_qubits
         throw(ArgumentError("Input state has more qubits than circuit input"))
     end
-    # Gadget measurements factor into a data part and a magic part, and
-    # `data_part_eigenvalue` requires the data part to have a definite eigenvalue
+    # Gadget measurements factor into an input part and a gadget part, and
+    # `input_part_eigenvalue` requires the input part to have a definite eigenvalue
     # under the stabilizer group — which holds only at full rank. Reject a
     # mixed/underdetermined state here, where the message can name the cause,
     # rather than deep inside a gadget measurement. `rank` (not the row count)
@@ -45,18 +45,18 @@ function create_hadamard_basis_state(num_qubit::Int)
     return Stabilizer(generators)
 end
 
-function create_magic_state(num_magic::Int)
+function create_magic_state(num_gadget::Int)
     # The T gates are NOT applied here: they are deferred to
-    # `quantum_measurement`, which activates each magic qubit right before the
+    # `quantum_measurement`, which activates each gadget qubit right before the
     # first measurement touching it. This keeps the chi-expansion of the
     # GeneralizedStabilizer at 4^(live qubits) instead of 4^(total), which is
     # exact because T_i commutes with every op not touching qubit i.
-    return GeneralizedStabilizer(create_hadamard_basis_state(num_magic))
+    return GeneralizedStabilizer(create_hadamard_basis_state(num_gadget))
 end
 
 const EmbeddedPcT = typeof(UnitaryPauliChannel(map(p -> embed(1, 1, p), pcT.paulis), pcT.weights))
 
-# One entry per (register width, magic qubit). The channel depends only on those
+# One entry per (register width, gadget qubit). The channel depends only on those
 # two numbers, so rebuilding it on every T activation -- and on every shot of a
 # sampling run -- was pure repeat work. Guarded by a lock: the cache outlives any
 # single `run`, and nothing else stops two threads from sampling concurrently.
@@ -156,11 +156,11 @@ function get_measurement_result(state::CompilerState, op::CircuitOp.Type)
         # Commuting and independent of the group: project! grew the rank in
         # place, adding `pauli` as the row at index projection[2]
         (rt, result) = quantum_measurement(rt, op, num_qubits)
-        # The joint observable factors as (data part) ⊗ (magic part).
-        # quantum_measurement projects only the magic part, so the
-        # data part's eigenvalue under the current stabilizer group
+        # The joint observable factors as (input part) ⊗ (gadget part).
+        # quantum_measurement projects only the gadget part, so the
+        # input part's eigenvalue under the current stabilizer group
         # (-1 for e.g. a -Z input row) must multiply the outcome.
-        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        result ⊻= input_part_eigenvalue(state, op, num_qubits)
         _record_projection!(md, projection, result)
         @reset state.runtime = rt
         return (QuantumRes(pauli, result), state)
@@ -210,11 +210,11 @@ function get_measurement_result(state::CompilerState{<:Union{SimRuntime,HybridRu
         # Commuting and independent of the group: project! grew the rank in
         # place, adding `pauli` as the row at index projection[2]
         (rt, result) = quantum_measurement(rt, op, num_qubits)
-        # The joint observable factors as (data part) ⊗ (magic part).
-        # quantum_measurement projects only the magic part, so the
-        # data part's eigenvalue under the current stabilizer group
+        # The joint observable factors as (input part) ⊗ (gadget part).
+        # quantum_measurement projects only the gadget part, so the
+        # input part's eigenvalue under the current stabilizer group
         # (-1 for e.g. a -Z input row) must multiply the outcome.
-        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        result ⊻= input_part_eigenvalue(state, op, num_qubits)
         _record_projection!(md, projection, result)
         if collapsed == rt.collapsed
             @reset state.runtime = rt
@@ -251,7 +251,7 @@ function get_measurement_result(state::CompilerState{<:Union{DummyRuntime,DummyH
         # Commuting and independent of the group: project! grew the rank in
         # place, adding `pauli` as the row at index projection[2]
         (rt, result) = quantum_measurement(rt, op, num_qubits)
-        result ⊻= data_part_eigenvalue(state, op, num_qubits)
+        result ⊻= input_part_eigenvalue(state, op, num_qubits)
         _record_projection!(md, projection, result)
         if collapsed == rt.collapsed
             @reset state.runtime = rt
@@ -324,10 +324,10 @@ function _mark_activated!(activated::BitVector, real_p, offset::Int, candidates)
 end
 
 """
-Apply the deferred T gate to every magic qubit newly activated by this
+Apply the deferred T gate to every gadget qubit newly activated by this
 measurement (see `_mark_activated!` and `create_magic_state`). `pct_width`/
 `pct_offset` locate the qubit within the register `embedded_pcT` is cached
-against, which differs between `SimRuntime` (magic-only register) and
+against, which differs between `SimRuntime` (gadget-only register) and
 `StabilizerRuntime` (full register).
 """
 function _activate_and_apply_T!(quantum_state, activated::BitVector, real_p, offset::Int, candidates, pct_width::Int, pct_offset::Int)
@@ -360,7 +360,7 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     for i in 1:num_input_qubits
         real_p[i] = (false, false)
     end
-    num_magic = num_gadget_qubits(rt)
+    num_gadget = num_gadget_qubits(rt)
     # The activation bit stays set after the qubit collapses back to a
     # stabilizer state — reapplying T there would be wrong
     candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
@@ -378,11 +378,11 @@ function quantum_measurement(rt::S, op::CircuitOp.Type, num_qubits::Int) where S
     if quantum_state === nothing
         throw(ArgumentError("Magic State not initiated"))
     end
-    # A gadget-free circuit leaves no magic block, so the whole register is data
-    # and the activation loop below is a no-op
+    # A gadget-free circuit leaves no gadget block, so the whole register is
+    # input qubits and the activation loop below is a no-op
     num_input_qubits = num_qubits - num_gadget_qubits(rt)
     real_p=embed(num_qubits, op.qubits, op.pauli)
-    # Magic qubits are selected by value from `op.qubits` (the operation's
+    # Gadget qubits are selected by value from `op.qubits` (the operation's
     # support), so this is correct regardless of where in the register they land
     candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
     _activate_and_apply_T!(quantum_state, rt.activated, real_p, num_input_qubits, candidates, num_qubits, num_input_qubits)
@@ -399,7 +399,7 @@ end
 Perform quantum measurement simulation on given state using QuantumClifford.jl
 backend. Unlike the generic `AbstractRuntime` method, this also calls
 [`_mark_collapsed!`](@ref) before applying any deferred T gate, so an isolated
-magic qubit's first touch is recorded in `rt.collapsed` and its outcome can be
+gadget qubit's first touch is recorded in `rt.collapsed` and its outcome can be
 classified `ClassicalBiasedRes` by the caller instead of `QuantumRes`.
 `HybridRuntime` shares this method with `SimRuntime` (pre-transition, it
 behaves identically).
@@ -417,7 +417,7 @@ function quantum_measurement(rt::Union{SimRuntime,HybridRuntime}, op::CircuitOp.
     for i in 1:num_input_qubits
         real_p[i] = (false, false)
     end
-    num_magic = num_gadget_qubits(rt)
+    num_gadget = num_gadget_qubits(rt)
     # The activation bit stays set after the qubit collapses back to a
     # stabilizer state — reapplying T there would be wrong
     candidates = (k - num_input_qubits for k in op.qubits if k > num_input_qubits)
@@ -431,53 +431,53 @@ function quantum_measurement(rt::Union{SimRuntime,HybridRuntime}, op::CircuitOp.
 end
 
 """
-    data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) -> Bool
+    input_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int) -> Bool
 
-Return the eigenvalue bit (`true` denotes -1) of the data-register part of the
+Return the eigenvalue bit (`true` denotes -1) of the input-register part of the
 joint gadget observable `op` under the current stabilizer group.
 
-A gadget measurement whose data part anticommutes with the group takes the
+A gadget measurement whose input part anticommutes with the group takes the
 random branch before reaching the quantum branch, and the group is full rank
-over the data register, so here the data part always has a definite sign —
+over the input register, so here the input part always has a definite sign —
 `-1` exactly when the input state carries it (e.g. a `-Z` input row). The
-observable's own phase is excluded: it is already carried by the magic-part
-slice inside `quantum_measurement`. Runtimes without a magic-state memory
+observable's own phase is excluded: it is already carried by the gadget-part
+slice inside `quantum_measurement`. Runtimes without a gadget-state memory
 (e.g. `DummyRuntime`) return `false`.
 """
-function data_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int)
+function input_part_eigenvalue(state::CompilerState, op::CircuitOp.Type, num_qubits::Int)
     memory = state.runtime.quantum_memory
     memory === nothing && return false
-    num_data = num_qubits - num_gadget_qubits(state.runtime)
-    data_p = embed(num_qubits, op.qubits, op.pauli)[1:num_data]
-    data_p.phase[] = 0x00
-    any(i -> let (x, z) = data_p[i]; x || z end, 1:num_data) || return false
-    data_full = embed(num_qubits, collect(1:num_data), data_p)
-    projection = project!(copy(state.stabilizer_group), data_full)
+    num_input = num_qubits - num_gadget_qubits(state.runtime)
+    input_p = embed(num_qubits, op.qubits, op.pauli)[1:num_input]
+    input_p.phase[] = 0x00
+    any(i -> let (x, z) = input_p[i]; x || z end, 1:num_input) || return false
+    input_full = embed(num_qubits, collect(1:num_input), input_p)
+    projection = project!(copy(state.stabilizer_group), input_full)
     projection[3] === nothing &&
-        error("Data part $data_full of gadget measurement $op has no definite eigenvalue under the stabilizer group")
+        error("Input part $input_full of gadget measurement $op has no definite eigenvalue under the stabilizer group")
     return Bool(projection[3] >> 1)
 end
 
-data_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
-data_part_eigenvalue(state::CompilerState{DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
+input_part_eigenvalue(state::CompilerState{DummyRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
+input_part_eigenvalue(state::CompilerState{DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int) = false
 
 """
     quantum_measurement(state::Union{DummyRuntime,DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int) -> Tuple{AbstractRuntime, Bool}
 Perform quantum measurement simulation using classical sampling according to
 weight determined by `p1_outcome_probs`. Also calls [`_mark_collapsed!`](@ref)
-on the magic-block-restricted Pauli, mirroring `SimRuntime`'s collapse
-detection so the caller can classify an isolated magic qubit's first touch as
+on the gadget-block-restricted Pauli, mirroring `SimRuntime`'s collapse
+detection so the caller can classify an isolated gadget qubit's first touch as
 `ClassicalBiasedRes` instead of `QuantumRes`, even though no real quantum
 state is simulated here. `DummyHybridRuntime` shares this method with
 `DummyRuntime` (pre-transition, it behaves identically).
 """
 function quantum_measurement(rt::Union{DummyRuntime,DummyHybridRuntime}, op::CircuitOp.Type, num_qubits::Int)
     if rt.activated !== nothing
-        num_magic = length(rt.activated)
-        magicqubits = num_qubits-num_magic+1:num_qubits
-        real_p = embed(num_qubits, op.qubits, op.pauli)[magicqubits]
-        _mark_collapsed!(rt.activated, rt.collapsed, real_p, 0, 1:num_magic)
-        _mark_activated!(rt.activated, real_p, 0, 1:num_magic)
+        num_gadget = length(rt.activated)
+        gadgetqubits = num_qubits-num_gadget+1:num_qubits
+        real_p = embed(num_qubits, op.qubits, op.pauli)[gadgetqubits]
+        _mark_collapsed!(rt.activated, rt.collapsed, real_p, 0, 1:num_gadget)
+        _mark_activated!(rt.activated, real_p, 0, 1:num_gadget)
     end
     result = rand() < rt.p1_outcome_probs
     return (rt, result)
@@ -485,7 +485,7 @@ end
 
 """
     quantum_measurement(state::DummyStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyStabilizerRuntime, Bool}
-Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
+Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which gadget qubits were touched.
 """
 function quantum_measurement(rt::DummyStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
     if rt.activated !== nothing
@@ -500,7 +500,7 @@ end
 
 """
     quantum_measurement(state::DummyHybridStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int) -> Tuple{DummyHybridStabilizerRuntime, Bool}
-Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which magic qubits were touched.
+Perform quantum measurement simulation using classical sampling according to weight determined by `p1_outcome_probs`, tracking which gadget qubits were touched.
 """
 function quantum_measurement(rt::DummyHybridStabilizerRuntime, op::CircuitOp.Type, num_qubits::Int)
     if rt.activated !== nothing

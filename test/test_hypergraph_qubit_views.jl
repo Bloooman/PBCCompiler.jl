@@ -6,10 +6,10 @@ using PBCCompiler: Circuit, CircuitOp, ExpEighPiPauli, Measurement, DummyRuntime
 using QuantumClifford: @P_str, nqubits
 using Graphs: nv
 
-# 2 data qubits, one T gate -> one magic-state gadget, so the register is
-# data(2) + magic(>=1). `state.stabilizer_group` (pre-`to_result`) is always
+# 2 input qubits, one T gate -> one gadget, so the register is
+# input(2) + gadget(>=1). `state.stabilizer_group` (pre-`to_result`) is always
 # full-register-width regardless of runtime -- unlike the `CompilationResult`
-# it produces, whose tableau is sliced down to the data qubits for
+# it produces, whose tableau is sliced down to the input qubits for
 # `AbstractStabilizerRuntime` results (see `to_result` in `logic.jl`) -- so use
 # it, not `result.stabilizer_group`, to compute the expected register width.
 circuit() = Circuit(CircuitOp.Type[
@@ -19,27 +19,27 @@ circuit() = Circuit(CircuitOp.Type[
 ])
 const N_INPUT = 2
 
-@testset "qubits=:magic sizes to the magic block, not the full register, for AbstractStabilizerRuntime" begin
+@testset "qubits=:gadget sizes to the gadget block, not the full register, for AbstractStabilizerRuntime" begin
     state = run(copy(circuit()), DummyStabilizerRuntime())
     register_n = Int(nqubits(state.stabilizer_group))
-    magic_n = register_n - N_INPUT
-    @test magic_n > 0  # sanity: there is a magic block to test the fix against
+    gadget_n = register_n - N_INPUT
+    @test gadget_n > 0  # sanity: there is a gadget block to test the fix against
 
     result = to_result(state)
-    # The bug being fixed: result.stabilizer_group is sliced to data-only for
+    # The bug being fixed: result.stabilizer_group is sliced to input-only for
     # AbstractStabilizerRuntime, so this must NOT be mistaken for register_n.
     @test size(result.stabilizer_group, 2) == N_INPUT
 
-    g = get_graph(result; qubits=:magic, n_input=N_INPUT)
-    @test nv(g) == magic_n
+    g = get_graph(result; qubits=:gadget, n_input=N_INPUT)
+    @test nv(g) == gadget_n
 end
 
-@testset "get_hypergraph on AbstractStabilizerRuntime keeps only the data-qubit block" begin
+@testset "get_hypergraph on AbstractStabilizerRuntime keeps only the input-qubit block" begin
     # get_hypergraph has no qubits=/n_input= kwargs (unlike get_graph): it
     # always sources hyperedges from QPU_workload, capped at
-    # num_data = nqubits(result.stabilizer_group). For AbstractStabilizerRuntime
-    # that field is sliced to the data qubits alone, so the cap intentionally
-    # drops the magic-qubit part of each measurement's support.
+    # num_input = nqubits(result.stabilizer_group). For AbstractStabilizerRuntime
+    # that field is sliced to the input qubits alone, so the cap intentionally
+    # drops the gadget-qubit part of each measurement's support.
     state = run(copy(circuit()), DummyStabilizerRuntime())
     result = to_result(state)
     @test size(result.stabilizer_group, 2) == N_INPUT
@@ -62,9 +62,9 @@ end
 
 @testset "get_hypergraph on SimRuntime/DummyRuntime sizes to the full register (cap is a no-op)" begin
     # For this runtime family, QPU_workload Paulis are already restricted to
-    # (and locally re-indexed over) the magic-qubit block, while
-    # stabilizer_group is full-register width -- so num_data is the full
-    # register size and the `x <= num_data` cap never drops anything.
+    # (and locally re-indexed over) the gadget-qubit block, while
+    # stabilizer_group is full-register width -- so num_input is the full
+    # register size and the `x <= num_input` cap never drops anything.
     for rt in (DummyRuntime(),)
         state = run(copy(circuit()), rt)
         register_n = Int(nqubits(state.stabilizer_group))
@@ -75,24 +75,24 @@ end
     end
 end
 
-@testset "get_graph qubits=:data sizes to the data block alone, dropping the magic block" begin
+@testset "get_graph qubits=:input sizes to the input block alone, dropping the gadget block" begin
     state = run(copy(circuit()), DummyStabilizerRuntime())
     result = to_result(state)
 
-    g = get_graph(result; qubits=:data, n_input=N_INPUT)
+    g = get_graph(result; qubits=:input, n_input=N_INPUT)
     @test nv(g) == N_INPUT
 end
 
-@testset "get_graph :data/:magic without n_input raise ArgumentError" begin
+@testset "get_graph :input/:gadget without n_input raise ArgumentError" begin
     state = run(copy(circuit()), DummyRuntime())
     result = to_result(state)
-    @test_throws ArgumentError get_graph(result; qubits=:data)
+    @test_throws ArgumentError get_graph(result; qubits=:input)
 end
 
 @testset "get_hypergraph on an empty QPU_workload yields an empty edge set, no error" begin
-    # A circuit with no measurements at all has nothing to gate the magic
+    # A circuit with no measurements at all has nothing to gate the gadget
     # register through, so QPU_workload is empty and every collected_edges
-    # row is empty -- I/J/V stay empty, exercising the `sparse(..., num_data,
+    # row is empty -- I/J/V stay empty, exercising the `sparse(..., num_input,
     # i - 1)` sizing on the zero-edge boundary rather than the removed
     # `maximum(I)`/`maximum(J)`, which throws on an empty collection.
     empty_circuit = Circuit(CircuitOp.Type[])
@@ -107,7 +107,7 @@ end
 @testset "weight_std_graph runs end-to-end with the new kwargs" begin
     state = run(copy(circuit()), DummyStabilizerRuntime())
     register_n = Int(nqubits(state.stabilizer_group))
-    g = weight_std_graph(circuit(), DummyStabilizerRuntime(); qubits=:magic, n_input=N_INPUT, num_shots=3)
+    g = weight_std_graph(circuit(), DummyStabilizerRuntime(); qubits=:gadget, n_input=N_INPUT, num_shots=3)
     @test nv(g) == register_n - N_INPUT
 end
 

@@ -7,14 +7,14 @@ using PBCCompiler: Circuit, CircuitOp, Measurement, ExpEighPiPauli, SimRuntime,
     build_compilerstate, do_quantum_step
 using QuantumClifford: @P_str
 
-# One pi/8 rotation -> one magic-state gadget, so the runtime carries a
+# One pi/8 rotation -> one gadget, so the runtime carries a
 # GeneralizedStabilizer, an `activated` bit, and telemetry to be isolated.
 gadget_circuit() = Circuit(CircuitOp.Type[
     CircuitOp.ExpEighPiPauli(P"Z", [1]),
     CircuitOp.Measurement(P"Z", 1, [1]),
 ])
 
-@testset "copy does not alias magic-state memory" begin
+@testset "copy does not alias gadget-state memory" begin
     state = build_compilerstate(gadget_circuit(), SimRuntime(), nothing)
     @test state.runtime.quantum_memory !== nothing
     @test !any(state.runtime.activated)
@@ -29,8 +29,8 @@ gadget_circuit() = Circuit(CircuitOp.Type[
     @test other.runtime.collapsed !== state.runtime.collapsed
     @test other.runtime.invsparsity_history !== state.runtime.invsparsity_history
 
-    # Drive a full measurement on the copy. It activates a magic qubit (applying
-    # the deferred T), projects the magic register, and records telemetry.
+    # Drive a full measurement on the copy. It activates a gadget qubit (applying
+    # the deferred T), projects the gadget register, and records telemetry.
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
 
@@ -55,7 +55,7 @@ end
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
     # Must not be visible through the original -- same aliasing bug class as
-    # SimRuntime's magic register, now for the dummy's activation bits.
+    # SimRuntime's gadget register, now for the dummy's activation bits.
     @test !any(state.runtime.activated)
 end
 
@@ -72,7 +72,7 @@ end
     @test !any(state.runtime.activated)
 end
 
-@testset "copy does not alias magic-state memory for HybridRuntime" begin
+@testset "copy does not alias gadget-state memory for HybridRuntime" begin
     state = build_compilerstate(gadget_circuit(), HybridRuntime(), nothing)
     @test state.runtime.quantum_memory !== nothing
     @test !any(state.runtime.activated)
@@ -89,9 +89,9 @@ end
 
     other = do_quantum_step(other)
     @test any(other.runtime.activated)
-    # gadget_circuit() has a single isolated magic qubit, so the same
+    # gadget_circuit() has a single isolated gadget qubit, so the same
     # `_mark_collapsed!` structural detection SimRuntime uses (see the
-    # "copy does not alias magic-state memory" testset above) fires here too.
+    # "copy does not alias gadget-state memory" testset above) fires here too.
     @test any(other.runtime.collapsed)
 
     # Before HybridRuntime was added to `_RuntimeWithMutableFields`, `copy`
@@ -202,7 +202,7 @@ using QuantumClifford: @P_str
 using Random: seed!
 
 # Two T gates and two measurements: enough for gadget measurements and for
-# dependent outcomes, so a desynced magic register would show up in the counts.
+# dependent outcomes, so a desynced gadget register would show up in the counts.
 circuit = Circuit(CircuitOp.Type[
     CircuitOp.ExpEighPiPauli(P"XY", [1, 2]),
     CircuitOp.ExpQuatPiPauli(P"ZX", [1, 2]),
@@ -246,7 +246,7 @@ end
 
 @testset "shots off one compilation are independent" begin
     # Each shot must start from the compiled state, not from the previous
-    # shot's collapsed one. If `copy` aliased the magic register every shot
+    # shot's collapsed one. If `copy` aliased the gadget register every shot
     # after the first would be forced onto one branch.
     compiled = build_compilerstate(copy(circuit), SimRuntime(), nothing)
     seed!(31)
@@ -271,7 +271,7 @@ end
 using PBCCompiler
 using PBCCompiler: Circuit, CircuitOp, HybridRuntime, HybridStabilizerRuntime,
     SimRuntime, StabilizerRuntime, to_result, num_gadget_qubits
-using PBCCompiler: MeasurementResult, _magic_block_qpu_load
+using PBCCompiler: MeasurementResult, _gadget_block_qpu_load
 using .MeasurementResult: QuantumRes
 using QuantumClifford: @P_str, nqubits
 using Random: seed!
@@ -295,7 +295,7 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
     @test count(result.runtime.activated) >= 1
 
     # Pins the collapse-detection this fix adds: the first measurement here
-    # touches only one (not-yet-activated) magic qubit and is resolved
+    # touches only one (not-yet-activated) gadget qubit and is resolved
     # pre-transition, so it must classify ClassicalBiasedRes just like
     # SimRuntime would -- not QuantumRes, which is what it would classify as
     # if collapse detection silently stopped firing pre-transition.
@@ -312,14 +312,14 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
 
     # Regression check for the pre/post-transition QPU_workload width
     # mismatch. `three_gadget_circuit`'s own pre-transition measurement only
-    # ever touches one magic qubit, so the natural run above never actually
+    # ever touches one gadget qubit, so the natural run above never actually
     # exercises the multi-qubit padding path. Force a pre-transition
-    # measurement with joint support on two magic qubits to confirm it still
+    # measurement with joint support on two gadget qubits to confirm it still
     # comes out at
-    # the same width as the post-transition entries, with the data-qubit
+    # the same width as the post-transition entries, with the input-qubit
     # segment (qubit 1) forced to identity rather than leaking its Z support.
     num_qubits = nqubits(result.stabilizer_group)
-    @test num_qubits == 6   # 3 data qubits + 3 gadgets, per three_gadget_circuit above
+    @test num_qubits == 6   # 3 input qubits + 3 gadgets, per three_gadget_circuit above
     padded_state = copy(result)
     padded_state.measurement_results[1] = QuantumRes(P"Z__XZ_", true)
     padded_out = to_result(padded_state)
@@ -347,22 +347,22 @@ end
     @test any(result.runtime.collapsed)
 end
 
-@testset "_magic_block_qpu_load embed_width pads with identity on the complement" begin
-    magicqubits = 3:5
+@testset "_gadget_block_qpu_load embed_width pads with identity on the complement" begin
+    gadgetqubits = 3:5
     embed_width = 6
     quantum = MeasurementResult.Type[
         QuantumRes(P"IIXZII", true),
         QuantumRes(P"IIIZYI", false),
     ]
-    narrow = _magic_block_qpu_load(quantum, magicqubits)
-    padded = _magic_block_qpu_load(quantum, magicqubits, embed_width)
+    narrow = _gadget_block_qpu_load(quantum, gadgetqubits)
+    padded = _gadget_block_qpu_load(quantum, gadgetqubits, embed_width)
 
     @test length(padded) == length(narrow)
     @test all(nqubits(entry.pauli) == embed_width for entry in padded)
-    # Restricted back to magicqubits, padded entries agree with the narrow ones.
-    @test all(padded[i].pauli[magicqubits] == narrow[i].pauli for i in eachindex(narrow))
-    # The complement of magicqubits (the data-qubit segment) is identity.
-    complement = setdiff(1:embed_width, magicqubits)
+    # Restricted back to gadgetqubits, padded entries agree with the narrow ones.
+    @test all(padded[i].pauli[gadgetqubits] == narrow[i].pauli for i in eachindex(narrow))
+    # The complement of gadgetqubits (the input-qubit segment) is identity.
+    complement = setdiff(1:embed_width, gadgetqubits)
     @test all(entry.pauli[i] == (false, false) for entry in padded, i in complement)
 end
 ##
@@ -428,19 +428,19 @@ end
 ##
 using PBCCompiler
 using PBCCompiler: CircuitOp, SimRuntime, DummyRuntime, CompilerState, MeasurementResult, to_result,
-    _magic_block_qpu_load
+    _gadget_block_qpu_load
 using QuantumClifford: @P_str, MixedDestabilizer, Stabilizer, one
 
-# The generic `to_result(state::CompilerState)` infers the magic-qubit window
+# The generic `to_result(state::CompilerState)` infers the gadget-qubit window
 # from `length(quantum)` (the QuantumRes count). SimRuntime/DummyRuntime
 # reclassify some gadget measurements as ClassicalBiasedRes once their
 # support collapses -- so the QuantumRes count can undercount the true number
-# of gadget/magic qubits. Build a state by hand (2 magic qubits: qubits 3 and
-# 4 of a 4-qubit register) with one QuantumRes spanning both magic qubits and
-# one ClassicalBiasedRes, and check the magic-qubit window used to
+# of gadget/gadget qubits. Build a state by hand (2 gadget qubits: qubits 3 and
+# 4 of a 4-qubit register) with one QuantumRes spanning both gadget qubits and
+# one ClassicalBiasedRes, and check the gadget-qubit window used to
 # restrict/embed the QuantumRes Pauli is sized from `activated` (2 gadget
 # qubits), not from the QuantumRes count (which is only 1).
-@testset "to_result keeps both magic qubits' support on a joint QuantumRes ($RT)" for (RT, rt) in [
+@testset "to_result keeps both gadget qubits' support on a joint QuantumRes ($RT)" for (RT, rt) in [
     (SimRuntime, SimRuntime(nothing, falses(2), falses(2), Int[])),
     (DummyRuntime, DummyRuntime(0.5, falses(2), falses(2))),
 ]
@@ -456,11 +456,11 @@ using QuantumClifford: @P_str, MixedDestabilizer, Stabilizer, one
 
     result = to_result(state)
     # Before SimRuntime/DummyRuntime had their own to_result, the generic
-    # method sized the magic-qubit window from `length(quantum) == 1` instead
+    # method sized the gadget-qubit window from `length(quantum) == 1` instead
     # of the true `num_gadget_qubits(rt) == 2`, silently dropping the X on
     # qubit 3 and returning an empty QPU_workload.
     @test length(result.QPU_workload) == 1
-    # Restricted to the 2-qubit magic-block width (qubits 3:4), not embedded
+    # Restricted to the 2-qubit gadget-block width (qubits 3:4), not embedded
     # back to the full 4-qubit register.
     @test result.QPU_workload[1].pauli == P"XX"
     @test result.QPUDuration == 1
@@ -477,12 +477,12 @@ using QuantumClifford: @P_str
 using Random: seed!
 using Moshi.Data: isa_variant
 
-# A single pi/8 rotation measured by itself never shares its magic qubit with
+# A single pi/8 rotation measured by itself never shares its gadget qubit with
 # another gadget, so `_mark_collapsed!` finds exactly one remaining
-# non-identity (not-yet-activated) magic qubit on the very first touch and
+# non-identity (not-yet-activated) gadget qubit on the very first touch and
 # marks it collapsed -- the measurement is classified `ClassicalBiasedRes`
 # instead of `QuantumRes`. This is intended: an isolated T-gadget's statistics
-# don't depend on entangling it with the live magic register, so it never
+# don't depend on entangling it with the live gadget register, so it never
 # needs to be actual QPU work.
 circuit = Circuit(CircuitOp.Type[
     CircuitOp.ExpEighPiPauli(P"Z", [1]),

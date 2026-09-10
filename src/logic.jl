@@ -71,7 +71,7 @@ end
 ##
 """
 Number of gadget (magic-state) qubits a preprocessed circuit needs: gadgetization
-appends its magic qubits above the input width, so the gadget count is the
+appends its gadget qubits above the input width, so the gadget count is the
 width difference.
 """
 _gadget_count(preprocessed::Circuit, num_input_qubits::Int) = get_circuit_width(preprocessed) - num_input_qubits
@@ -79,7 +79,7 @@ _gadget_count(preprocessed::Circuit, num_input_qubits::Int) = get_circuit_width(
 """
 Build the runtime data from an already-preprocessed circuit for
 `StabilizerRuntime`: allocate one magic-state qubit per gadget; gadgetization
-appends its magic qubits above the input width, so the gadget count is the
+appends its gadget qubits above the input width, so the gadget count is the
 width difference.
 """
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::StabilizerRuntime)
@@ -92,7 +92,7 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     quantum_memory = GeneralizedStabilizer(state)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
-    # Unlike SimRuntime -- which allocates no magic register at all when there
+    # Unlike SimRuntime -- which allocates no gadget register at all when there
     # are no gadgets, so `nothing` is the honest value there -- this runtime
     # always holds the full register. An empty BitVector keeps
     # `num_input_qubits = num_qubits - length(activated)` correct on gadget-free
@@ -106,7 +106,7 @@ end
 """
 Build the runtime data from an already-preprocessed circuit for
 `SimRuntime`/`HybridRuntime`: allocate one magic-state qubit per gadget;
-gadgetization appends its magic qubits above the input width, so the gadget
+gadgetization appends its gadget qubits above the input width, so the gadget
 count is the width difference.
 """
 function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input_qubits::Int, rt::Union{SimRuntime,HybridRuntime})
@@ -119,7 +119,7 @@ function build_rt_data(preprocessed::Circuit, input_state::Stabilizer, num_input
     quantum_memory = GeneralizedStabilizer(state)
     @debug "Number of gadgets inserted" num_gadgets _group=:api
     @reset rt.quantum_memory=quantum_memory
-    # Unlike SimRuntime -- which allocates no magic register at all when there
+    # Unlike SimRuntime -- which allocates no gadget register at all when there
     # are no gadgets, so `nothing` is the honest value there -- this runtime
     # always holds the full register. An empty BitVector keeps
     # `num_input_qubits = num_qubits - length(activated)` correct on gadget-free
@@ -206,25 +206,25 @@ function do_quantum_step(state::CompilerState, meas_list::Vector{Int}=find_varia
 end
 
 """
-Restrict each `QuantumRes` in `quantum` to the qubits in `magicqubits`.
+Restrict each `QuantumRes` in `quantum` to the qubits in `gadgetqubits`.
 
 When `embed_width` is given, each entry's Pauli is placed back at that full
 register width (identity elsewhere) instead of returned restricted to
-`magicqubits` alone -- used by `to_result(::CompilerState{<:HybridStabilizerRuntime})`
+`gadgetqubits` alone -- used by `to_result(::CompilerState{<:HybridStabilizerRuntime})`
 so every `QPU_workload` entry has the same width as the post-transition ones
 it's concatenated with.
 
 Every entry in `quantum` already passed `project!`'s independence check to be
 classified `QuantumRes`, so every one represents real QPU work and none are
-dropped here -- a magic qubit's Pauli support looking narrow after restriction
+dropped here -- a gadget qubit's Pauli support looking narrow after restriction
 does not mean its outcome is already known, since it can still be entangled
-with the data register or other stabilizers.
+with the input register or other stabilizers.
 """
-function _magic_block_qpu_load(quantum, magicqubits, embed_width::Union{Int,Nothing}=nothing)
+function _gadget_block_qpu_load(quantum, gadgetqubits, embed_width::Union{Int,Nothing}=nothing)
     qpu_load = Vector{MeasurementResult.Type}()
     for mr in quantum
-        magic_p = mr.pauli[magicqubits]
-        p = embed_width === nothing ? magic_p : embed(embed_width, magicqubits, magic_p)
+        gadget_p = mr.pauli[gadgetqubits]
+        p = embed_width === nothing ? gadget_p : embed(embed_width, gadgetqubits, gadget_p)
         push!(qpu_load, QuantumRes(p, mr.result))
     end
     return qpu_load
@@ -235,8 +235,8 @@ function to_result(state::CompilerState)
     meas_result = state.measurement_results
     assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
     quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
-    magicqubits = num_qubits - length(quantum) + 1 : num_qubits
-    qpu_load = _magic_block_qpu_load(quantum, magicqubits)
+    gadgetqubits = num_qubits - length(quantum) + 1 : num_qubits
+    qpu_load = _gadget_block_qpu_load(quantum, gadgetqubits)
 
     # CompilationResult keeps the plain Stabilizer representation (stable
     # serialization format); extract it from the working tableau
@@ -244,8 +244,8 @@ function to_result(state::CompilerState)
 end
 
 """
-Number of magic-state (gadget) qubits a `StabilizerRuntime`/`DummyStabilizerRuntime`/`HybridStabilizerRuntime`
-holds -- the trailing block of the register, above the data qubits.
+Number of gadget qubits a `StabilizerRuntime`/`DummyStabilizerRuntime`/`HybridStabilizerRuntime`
+holds -- the trailing block of the register, above the input qubits.
 
 `activated` is `nothing` on a state from [`_empty_state`](@ref), which never runs
 `build_rt_data`; a circuit with nothing to execute has no gadgets, hence 0.
@@ -258,12 +258,12 @@ num_gadget_qubits(rt::AbstractRuntime) =
 (the last two only pre-transition -- see
 `to_result(::CompilerState{<:Union{HybridStabilizerRuntime,DummyHybridStabilizerRuntime}})`
 for the post-transition case). The generic `to_result(state::CompilerState)`
-sizes the magic-qubit window from the `QuantumRes` count, which assumes every
+sizes the gadget-qubit window from the `QuantumRes` count, which assumes every
 gadget measurement lands as `QuantumRes` -- these runtimes break that
-assumption on purpose, reclassifying an isolated magic qubit's measurement as
+assumption on purpose, reclassifying an isolated gadget qubit's measurement as
 `ClassicalBiasedRes` once its support has collapsed. Sized from
 `num_gadget_qubits(state.runtime)` instead (like `AbstractStabilizerRuntime`'s
-method) so `magicqubits`/`QPU_workload` stay correctly sized regardless of how
+method) so `gadgetqubits`/`QPU_workload` stay correctly sized regardless of how
 many measurements collapsed.
 
 `ClassicalBiasedRes` entries are excluded from `QPU_workload`, same as the
@@ -276,8 +276,8 @@ function to_result(state::CompilerState{<:Union{SimRuntime,DummyRuntime,HybridRu
     assigned = [meas_result[i] for i in 1:length(meas_result) if isassigned(meas_result, i)]
     quantum = filter(mr -> isa_variant(mr, QuantumRes), assigned)
     num_gadgets = num_gadget_qubits(state.runtime)
-    magicqubits = num_qubits - num_gadgets + 1 : num_qubits
-    qpu_load = _magic_block_qpu_load(quantum, magicqubits)
+    gadgetqubits = num_qubits - num_gadgets + 1 : num_qubits
+    qpu_load = _gadget_block_qpu_load(quantum, gadgetqubits)
 
     # CompilationResult keeps the plain Stabilizer representation (stable
     # serialization format); extract it from the working tableau
@@ -303,23 +303,23 @@ end
 
 """
 `to_result` for a `HybridRuntime` that converted mid-run. Measurements taken
-before the transition were `SimRuntime`-style: only their magic-qubit support
-is real QPU work (the data part was already resolved classically), so those
-`QuantumRes` entries go through the same magic-block restriction the generic
+before the transition were `SimRuntime`-style: only their gadget-qubit support
+is real QPU work (the input part was already resolved classically), so those
+`QuantumRes` entries go through the same gadget-block restriction the generic
 `to_result` applies. Pre-transition measurements reclassified `ClassicalBiasedRes`
 by `HybridRuntime`'s collapse detection are excluded here by the same
 `isa_variant(mr, QuantumRes)` filter that excludes them from
 `to_result(::CompilerState{<:Union{SimRuntime,DummyRuntime,HybridRuntime,DummyHybridRuntime}})`. Measurements taken after the transition were genuine
 whole-register `StabilizerRuntime` projections, so they're kept as-is, same
 as the plain `AbstractStabilizerRuntime` method. The result tableau keeps the
-data qubits plus whichever magic qubits were already live in `quantum_memory`
+input qubits plus whichever gadget qubits were already live in `quantum_memory`
 at the transition point ([`HybridStabilizerRuntime.activated_at_transition`](@ref)) --
-magic qubits only touched after the transition are pure `StabilizerRuntime`
+gadget qubits only touched after the transition are pure `StabilizerRuntime`
 territory and don't carry the same "live quantum resource" meaning.
 
 Pre-transition entries are embedded back to full register width (identity on
 every qubit their restricted-and-locally-absorbed Pauli doesn't cover)
-instead of kept at the narrow magic-block width, so every entry in the
+instead of kept at the narrow gadget-block width, so every entry in the
 returned `QPU_workload` has the same length as the post-transition ones it's
 concatenated with.
 """
@@ -335,8 +335,8 @@ function to_result(state::CompilerState{<:Union{HybridStabilizerRuntime,DummyHyb
     pre_quantum = filter(mr -> isa_variant(mr, QuantumRes), meas_result[pre_idx])
     post_quantum = filter(mr -> isa_variant(mr, QuantumRes), meas_result[post_idx])
 
-    magicqubits = num_input_qubits+1:num_qubits
-    qpu_load = vcat(_magic_block_qpu_load(pre_quantum, magicqubits, num_qubits), post_quantum)
+    gadgetqubits = num_input_qubits+1:num_qubits
+    qpu_load = vcat(_gadget_block_qpu_load(pre_quantum, gadgetqubits, num_qubits), post_quantum)
 
     keep_qubits = vcat(1:num_input_qubits, num_input_qubits .+ findall(rt.activated_at_transition))
     s_sub = stabilizerview(state.stabilizer_group)[:, keep_qubits]

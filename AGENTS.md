@@ -9,7 +9,7 @@ Tools for Pauli Based Computation (PBC), a modality of quantum computation.
 - `src/traversal.jl` - Circuit traversal utilities for gate simplifications
 - `src/pair_transformation.jl` - The 2->2 kernels driven by `traversal` (conjugation, merging, commutation)
 - `src/preprocess.jl` - The `preprocess_circuit` compilation pipeline
-- `src/joint_measurement_check.jl` - Measurement outcomes against the tableau and magic register
+- `src/joint_measurement_check.jl` - Measurement outcomes against the tableau and gadget register
 - `src/logic.jl` - `build_compilerstate`, `execute!`, `run`, `to_result`
 - `src/statistics.jl` - Shot sampling and interaction-graph extraction
 - `src/io.jl` - QASM parsing, result save/load
@@ -44,25 +44,25 @@ The `preprocess_circuit` function transforms circuits through stages:
 2. Commute non-Clifford gates to front
 3. Group non-Clifford operations
 4. Commute measurements to end
-5. Remove non-Clifford gates (introduce magic states)
+5. Remove non-Clifford gates (introduce gadget qubits via magic-state injection)
 6. Remove post-measurement operations
 
 ### Runtime
 - `AbstractRuntime` - Supertype of the measurement backends
-- `SimRuntime` - Simulates the magic register with a `GeneralizedStabilizer`;
+- `SimRuntime` - Simulates the gadget register with a `GeneralizedStabilizer`;
   outcomes that anticommute with the stabilizer group become coin flips resolved
   by splicing compensating rotations into the circuit. A gadget measurement
-  that touches only one magic qubit and finds it not yet `activated` is an
-  isolated magic qubit whose statistics never entangled with the live
+  that touches only one gadget qubit and finds it not yet `activated` is an
+  isolated gadget qubit whose statistics never entangled with the live
   register, so it's recorded as `ClassicalBiasedRes` instead of `QuantumRes`
   (see `_mark_collapsed!`) and `to_result`/`QPU_workload` are sized from
   `num_gadget_qubits` rather than the `QuantumRes` count to stay correct
   regardless of how many measurements collapsed
-- `StabilizerRuntime` - Simulates the full register (data + magic) together, so
+- `StabilizerRuntime` - Simulates the full register (input + gadget) together, so
   it projects for every non-deterministic outcome and never yields a
   `ClassicalRandomRes`. **This is intended design — do not "fix" it.** Every
   non-deterministic outcome becomes a `QuantumRes`, including ones that are
-  random only because of the data register, so `QPU_workload` runs far larger
+  random only because of the input register, so `QPU_workload` runs far larger
   than `SimRuntime`'s (~5x on random small circuits) and the two are not
   comparable. Outcomes themselves agree between the runtimes; only the
   classification differs
@@ -73,14 +73,14 @@ The `preprocess_circuit` function transforms circuits through stages:
   `num_gadget_qubits`-based `to_result` sizing
 - `DummyStabilizerRuntime` - Cheap stand-in for `StabilizerRuntime`: same
   control flow (no anticommuting coin-flip branch) and same `activated`
-  bookkeeping of which magic qubits a measurement touched, but coin-flips
+  bookkeeping of which gadget qubits a measurement touched, but coin-flips
   every non-deterministic outcome instead of simulating the full register.
   `to_result`/`QPU_workload` extraction work the same way they do for
   `StabilizerRuntime`; only the outcome bias is not physically faithful
-- `HybridRuntime` - Starts out simulating the magic register like
+- `HybridRuntime` - Starts out simulating the gadget register like
   `SimRuntime`, then converts in place into a `HybridStabilizerRuntime`
   (which behaves like `StabilizerRuntime` from that point on) once
-  `maximum_measurement_support` activated magic qubits have been reached.
+  `maximum_measurement_support` activated gadget qubits have been reached.
   `PBCCompiler.run` drives the conversion by calling `transition` after every
   measurement step. With `maximum_measurement_support = nothing` (the
   default) it never converts and behaves exactly like `SimRuntime`,
@@ -92,7 +92,7 @@ The `preprocess_circuit` function transforms circuits through stages:
 - `DummyHybridRuntime` - Cheap stand-in for `HybridRuntime`, mirroring how
   `DummyRuntime` stands in for `SimRuntime`: same conversion control flow,
   same `collapsed`/`ClassicalBiasedRes` parity pre-transition, but coin-flips
-  outcomes instead of simulating the magic register
+  outcomes instead of simulating the gadget register
 - `CompilerState{R,T}` - Tracks measurement results, tableau, classical
   register, circuit, instruction pointer and runtime. Parameterized on the
   runtime and tableau types to keep the execution loop type stable
