@@ -102,6 +102,22 @@ Runtimes carry mutable contents (`quantum_memory`, `activated`,
 derives two states from one compilation must go through `copy`, never share a
 runtime.
 
+### Qubit views for plotting/analysis (playground)
+
+`playground/scripts/qubit_view.jl` (not part of the package itself) selects
+which qubits a plot or hypergraph extraction shows via `--qubits all|carrier`.
+`:carrier` asks, per qubit, whether it is *ever* a genuine information
+carrier rather than assuming that from its origin (input vs. gadget) —
+origin-based selection is the wrong axis, since which qubits carry
+information depends on the runtime family above: gadget-only for
+`SimRuntime`/`DummyRuntime`, the whole register for `StabilizerRuntime`/
+`DummyStabilizerRuntime`, and a mix (input qubits touched at or after the
+transition, plus any gadget qubit folded into the tableau at the transition)
+for `HybridStabilizerRuntime`. Collapsed gadget qubits (`ClassicalBiasedRes`)
+merge into one lane; input qubits that are never a carrier are dropped
+entirely. See `playground/scripts/README.md`'s "Choosing qubits" section for
+the full flag semantics.
+
 ### Compiling once, running many shots
 `PBCCompiler.run` is `build_compilerstate` followed by `execute!`. Compilation
 is shot-independent, so sampling loops compile once and run each shot off a
