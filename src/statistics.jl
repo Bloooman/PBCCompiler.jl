@@ -319,47 +319,44 @@ do show up here), and for [`AbstractStabilizerRuntime`](@ref) results the two
 are unrelated (`QPU_workload` there keeps full-register Paulis, including ones
 with no magic support at all, which this view drops).
 """
-function get_hypergraph(result::CompilationResult;
-        qubits::Symbol=:all, n_input::Union{Int,Nothing}=nothing, variant::Symbol=:all)
-    # Fix the vertex count explicitly; inferring it from the sparse indices would
-    # silently drop qubits that no measurement touches
-    (measurements, num_v, row_of, register_n) =
-        _select_measurement_results(result; qubits, n_input, variant)
-    paulis=[m.pauli for m in measurements]
-    collected_edges = Vector{Vector{Int}}()
-    for p in paulis
-        push!(collected_edges, _qubit_coverage(p, row_of, register_n))
+function get_hypergraph(result::CompilationResult)
+    num_data = nqubits(result.stabilizer_group)
+    measurements = result.QPU_workload
+    Paulis=[m.pauli for m in measurements]
+    collected_edges = Vector{Set{Int}}()
+    for p in Paulis
+        push!(collected_edges, _qubit_coverage(p))
     end
-    w=countmap(collected_edges)
+    collected_edges
     I = Int[]
     J = Int[]
     i=1
-    cleaned_w = filter(p-> length(p.first) > 1, w)
-    for row in keys(cleaned_w)
-        append!(I,row)
-        col=fill(i,length(row))
-        append!(J,col)
-        i+=1
+    for row in collected_edges
+        filtered_row = filter(x -> x <=num_data, row)
+        if !isempty(filtered_row)
+            append!(I,filtered_row)
+            col=fill(i,length(filtered_row))
+            append!(J,col)
+            i+=1
+        end
     end
     V = Int.(ones(length(I)))
-    edge_weights=collect(values(cleaned_w))
-    A = sparse(I, J, V, num_v, length(edge_weights))
-    h = KaHyPar.HyperGraph(A,ones(Int, num_v),edge_weights)
+    A = sparse(I, J, V, maximum(I), maximum(J))
+    h = KaHyPar.HyperGraph(A)
     return (A, h)
 end
 
 """
 Vertex rows `p`'s support maps to under `row_of`, sorted and deduplicated.
 """
-function _qubit_coverage(p::PauliOperator, row_of, register_n::Int)
+function _qubit_coverage(p::PauliOperator)
     bool_vec = [p[i] for i in 1:min(Int(nqubits(p)), register_n)]
     idx = findall(x -> x !== (false,false), bool_vec)
-    rows = Set{Int}()
+    row = Set{Int}()
     for i in idx
-        r = row_of(i)
-        r === nothing || push!(rows, r)
+        push!(row, i)
     end
-    return sort!(collect(rows))
+    return row
 end
 
 ##
