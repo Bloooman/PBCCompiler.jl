@@ -508,3 +508,33 @@ function HyperedgeConnectivity(h::KaHyPar.HyperGraph, parts::Vector{Int64})::Int
     return sum((length(unique(parts[v+1] for v in verts)) - 1
                 for verts in _hyperedge_vertices(h)); init=0)
 end
+##
+"""
+    find_depth(result::CompilationResult) -> Vector{Vector{Set{Int}}}
+
+Group `result.QPU_workload` measurements into depth layers, where each
+layer is a maximal run of measurements (in `QPU_workload` order) whose
+qubit supports are pairwise disjoint. Returns each layer as the qubit
+supports of the measurements assigned to it.
+"""
+function find_depth(result::CompilationResult)
+    measurements = result.QPU_workload
+    Paulis = [m.pauli for m in measurements]
+    collected_edges = [_qubit_coverage(p) for p in Paulis]
+
+    layers = Vector{Vector{Set{Int}}}()
+    i = 1
+    n = length(collected_edges)
+    while i <= n
+        layer = Vector{Set{Int}}()
+        push!(layer, collected_edges[i])
+        j = i + 1
+        while j <= n && all(isdisjoint(collected_edges[j], sub) for sub in layer)
+            push!(layer, collected_edges[j])
+            j += 1
+        end
+        push!(layers, layer)
+        i = j
+    end
+    return layers
+end
