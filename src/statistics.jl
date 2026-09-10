@@ -293,65 +293,61 @@ function weight_std_graph(input_circuit::Circuit, rt::R, input_state::Union{Stab
 end
 ##
 """
-    get_hypergraph(result::CompilationResult; qubits=:all, n_input=nothing, variant=:all) -> (A, h)
+    get_hypergraph(result::CompilationResult) -> (A, h)
 
-Extract the qubit interaction hypergraph from a `CompilationResult`.
+Extract the qubit interaction hypergraph from a `CompilationResult`'s
+`QPU_workload` -- the joint Pauli measurements that represent actual QPU work
+to be partitioned. Each `QPU_workload` entry becomes a hyperedge over the
+qubits its Pauli has support on, restricted to `1:num_data` where
+`num_data = nqubits(result.stabilizer_group)`; entries with no surviving
+support are dropped rather than producing an empty hyperedge.
 
-`qubits` selects which qubits become vertices: `:all` (default) every register
-qubit, `:data` the data qubits alone, `:magic` the
-magic-state block alone (re-indexed from 1). `:data`/`:magic` require
-`n_input`, the number of data qubits, since `CompilationResult` does not
-record the data/magic split. A measurement becomes a hyperedge only if its
-Pauli has support among the selected qubits. `variant` independently
-restricts which `MeasurementResult` variant is eligible (`:all`, `:quantum`,
-`:determ`, `:random`).
-
-`qubits=:all` (the default) matches the old `quantum_only=false` default,
-sized off the register width computed by [`_select_measurement_results`](@ref)
-(not simply `size(result.stabilizer_group, 2)` -- see there for why).
-`qubits=:magic, variant=:quantum` is the closest equivalent to the old
-`quantum_only=true`,
-but is not identical to it: unlike `QPU_workload`, this view is drawn from
-`measurement_results` filtered by qubit support, so for
-[`SimRuntime`](@ref)/[`DummyRuntime`](@ref) results it is a superset (weight-1
-magic Paulis that `to_result` absorbed locally are not in `QPU_workload` but
-do show up here), and for [`AbstractStabilizerRuntime`](@ref) results the two
-are unrelated (`QPU_workload` there keeps full-register Paulis, including ones
-with no magic support at all, which this view drops).
+The meaning of `num_data` and the restriction differ by runtime family
+(see `to_result` in `logic.jl`):
+- For [`SimRuntime`](@ref)/[`DummyRuntime`](@ref)/[`HybridRuntime`](@ref)
+  results, `QPU_workload` Paulis are already restricted to the magic-qubit
+  block and locally re-indexed (`1:num_gadgets`), while `stabilizer_group` is
+  full-register width, so `num_data` here is the full register size and the
+  `1:num_data` restriction is a no-op -- every entry survives unchanged, with
+  vertex indices meaning local magic-qubit position.
+- For [`AbstractStabilizerRuntime`](@ref) results, `QPU_workload` Paulis are
+  full-register width (data and magic qubits together) while
+  `stabilizer_group` is sliced to the data qubits alone, so `num_data` is the
+  data-qubit count and the restriction intentionally keeps only the
+  data-qubit part of each measurement's support, dropping the magic block.
 """
 function get_hypergraph(result::CompilationResult)
     num_data = nqubits(result.stabilizer_group)
     measurements = result.QPU_workload
-    Paulis=[m.pauli for m in measurements]
+    Paulis = [m.pauli for m in measurements]
     collected_edges = Vector{Set{Int}}()
     for p in Paulis
         push!(collected_edges, _qubit_coverage(p))
     end
-    collected_edges
     I = Int[]
     J = Int[]
-    i=1
+    i = 1
     for row in collected_edges
-        filtered_row = filter(x -> x <=num_data, row)
+        filtered_row = filter(x -> x <= num_data, row)
         if !isempty(filtered_row)
-            append!(I,filtered_row)
-            col=fill(i,length(filtered_row))
-            append!(J,col)
-            i+=1
+            append!(I, filtered_row)
+            col = fill(i, length(filtered_row))
+            append!(J, col)
+            i += 1
         end
     end
     V = Int.(ones(length(I)))
-    A = sparse(I, J, V, maximum(I), maximum(J))
+    A = sparse(I, J, V, num_data, i - 1)
     h = KaHyPar.HyperGraph(A)
     return (A, h)
 end
 
 """
-Vertex rows `p`'s support maps to under `row_of`, sorted and deduplicated.
+Vertex rows (1-based qubit indices) `p` has non-identity support on.
 """
 function _qubit_coverage(p::PauliOperator)
-    bool_vec = [p[i] for i in 1:min(Int(nqubits(p)), register_n)]
-    idx = findall(x -> x !== (false,false), bool_vec)
+    bool_vec = [p[i] for i in 1:Int(nqubits(p))]
+    idx = findall(x -> x !== (false, false), bool_vec)
     row = Set{Int}()
     for i in idx
         push!(row, i)
