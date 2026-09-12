@@ -9,7 +9,7 @@ secrets:
 steps:
   - label: "PBCCompiler Tests - {{matrix.LABEL}}"
     plugins:
-      - JuliaCI/julia#v1:
+      - QuantumSavory/julia#v1:
           version: "1"
           compiled_size_limit: 10737418240 # 10GiB
       - JuliaCI/julia-test#v1:
