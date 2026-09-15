@@ -113,17 +113,25 @@ information depends on the runtime family above: gadget-only for
 `SimRuntime`/`DummyRuntime`, the whole register for `StabilizerRuntime`/
 `DummyStabilizerRuntime`, and a mix (input qubits touched at or after the
 transition, plus any gadget qubit folded into the tableau at the transition)
-for `HybridStabilizerRuntime`. Gadget qubits merge into one lane for two
-different reasons depending on family: collapsed to `ClassicalBiasedRes`
-(`SimRuntime`/`DummyRuntime`, never real QPU work) or, for
-`StabilizerRuntime`/`DummyStabilizerRuntime`/`HybridStabilizerRuntime`'s
-post-transition qubits (which never produce `ClassicalBiasedRes`, so every
-gadget qubit there did genuine work), touched only by their own
-two-adjacent-measurement gadget and never again -- in practice this merges
-the entire gadget block for a plain `StabilizerRuntime`/
-`DummyStabilizerRuntime` result. Input qubits that are never a carrier are
-dropped entirely. See `playground/scripts/README.md`'s "Choosing qubits"
-section for the full flag semantics.
+for `HybridStabilizerRuntime`. Under `:carrier`, every `ClassicalBiasedRes`
+measurement is dropped as a column: it collapsed an isolated gadget qubit
+whose magic state was simulated classically and never injected into the QPU.
+A gadget qubit gets a row only if at least one `QuantumRes` measurement
+touches it -- being collapsed does not exclude it by itself, since a later
+joint measurement can entangle a collapsed qubit with a live magic qubit,
+and from then on it is a carrier. Of those, gadget qubits touched only by
+their own two-adjacent-measurement gadget and never again (the
+`StabilizerRuntime`/`DummyStabilizerRuntime` family, plus
+`HybridStabilizerRuntime`'s post-transition qubits) share one lane labelled
+"transient gadget qubits" -- in practice the entire gadget block for a plain
+`StabilizerRuntime`/`DummyStabilizerRuntime` result. Input qubits that are
+never a carrier are dropped entirely, and rows left with no tile are pruned.
+A row is memory, not magic-state supply: the plot subtitles carry
+`qpu_magic_state_count` (states actually injected, so a `SimRuntime`-family
+result reports fewer than a `StabilizerRuntime`-family one for the same
+circuit) and `peak_live_qubits` separately. See
+`playground/scripts/README.md`'s "Choosing qubits" section for the full flag
+semantics.
 
 ### Compiling once, running many shots
 `PBCCompiler.run` is `build_compilerstate` followed by `execute!`. Compilation
