@@ -1,10 +1,14 @@
 name = "PBCCompiler"
 uuid = "66660b70-1c9c-4e13-82cc-f550c154eed2"
 version = "0.1.0"
-authors = ["Stefan Krastanov <stefan@krastanov.org>"]
+authors = [
+    "Oliver Gao <yuhgao@umass.edu>",
+    "Stefan Krastanov <stefan@krastanov.org>",
+    "QuantumSavory.jl community contributors"
+]
 
 [workspace]
-projects = ["benchmark", "docs"]
+projects = ["benchmark", "docs", "test", "test/projects/jet"]
 
 [deps]
 Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
