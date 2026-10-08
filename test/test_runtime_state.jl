@@ -277,9 +277,10 @@ using QuantumClifford: @P_str, nqubits
 using Random: seed!
 using Moshi.Data: isa_variant
 
-# Three independent pi/8 rotations -> three magic-state gadgets, so a
-# threshold of 2 is crossed partway through the run (one gadget resolves
-# pre-transition, two post-transition) rather than on the very first or last step.
+# Three independent pi/8 rotations -> three magic-state gadgets on 3 input
+# qubits, so a threshold of 4 (input width + 1) is crossed partway through the
+# run (one gadget resolves pre-transition, two post-transition) rather than on
+# the very first or last step.
 three_gadget_circuit = Circuit(CircuitOp.Type[
     CircuitOp.ExpEighPiPauli(P"Z", [1]),
     CircuitOp.ExpEighPiPauli(P"Z", [2]),
@@ -290,7 +291,7 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
 ])
 
 @testset "converts once total qubit support reaches the threshold" begin
-    result = PBCCompiler.run(copy(three_gadget_circuit), HybridRuntime(2), nothing)
+    result = PBCCompiler.run(copy(three_gadget_circuit), HybridRuntime(4), nothing)
     @test result.runtime isa HybridStabilizerRuntime
     @test count(result.runtime.activated) >= 1
 
@@ -377,8 +378,8 @@ using QuantumClifford: @P_str, nqubits
 using Random: seed!
 
 # Same shape as the HybridRuntime testitem: three independent pi/8 rotations
-# -> three magic-state gadgets, so a threshold of 2 is crossed partway through
-# the run rather than on the very first or last step.
+# -> three magic-state gadgets on 3 input qubits, so a threshold of 4 is
+# crossed partway through the run rather than on the very first or last step.
 three_gadget_circuit = Circuit(CircuitOp.Type[
     CircuitOp.ExpEighPiPauli(P"Z", [1]),
     CircuitOp.ExpEighPiPauli(P"Z", [2]),
@@ -389,7 +390,7 @@ three_gadget_circuit = Circuit(CircuitOp.Type[
 ])
 
 @testset "converts once total qubit support reaches the threshold" begin
-    result = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(2), nothing)
+    result = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(4), nothing)
     @test result.runtime isa DummyHybridStabilizerRuntime
     @test count(result.runtime.activated) >= 1
 
@@ -420,6 +421,71 @@ end
     @test length(hybrid_out.QPU_workload) == length(dummy_out.QPU_workload)
     @test result.runtime.collapsed == dummy_result.runtime.collapsed
     @test any(result.runtime.collapsed)
+end
+##
+end
+
+@testitem "hybrid threshold endpoints reproduce the stabilizer and sim runtimes exactly" tags=[:runtime] begin
+##
+using PBCCompiler
+using PBCCompiler: Circuit, CircuitOp, HybridRuntime, HybridStabilizerRuntime,
+    DummyHybridRuntime, DummyHybridStabilizerRuntime, SimRuntime, StabilizerRuntime,
+    DummyRuntime, DummyStabilizerRuntime, to_result
+using QuantumClifford: @P_str
+using Random: seed!
+using Moshi.Data: variant_name
+
+# 3 input qubits + 3 gadgets: n_input = 3, full width N = 6
+three_gadget_circuit = Circuit(CircuitOp.Type[
+    CircuitOp.ExpEighPiPauli(P"Z", [1]),
+    CircuitOp.ExpEighPiPauli(P"Z", [2]),
+    CircuitOp.ExpEighPiPauli(P"Z", [3]),
+    CircuitOp.Measurement(P"Z", 1, [1]),
+    CircuitOp.Measurement(P"Z", 2, [2]),
+    CircuitOp.Measurement(P"Z", 3, [3]),
+])
+n_input, N = 3, 6
+
+# Everything a sweep result file stores, in comparable form
+signature(r) = (
+    [(variant_name(m), m.pauli, m.result) for m in r.measurement_results],
+    [(variant_name(m), m.pauli, m.result) for m in r.QPU_workload],
+    r.stabilizer_group, r.QPUDuration)
+
+# Same seed, so identical code paths draw identical outcomes
+function same_shots(rt_a, rt_b; seeds=1:20)
+    all(seeds) do s
+        seed!(s); a = to_result(PBCCompiler.run(copy(three_gadget_circuit), rt_a(), nothing))
+        seed!(s); b = to_result(PBCCompiler.run(copy(three_gadget_circuit), rt_b(), nothing))
+        signature(a) == signature(b)
+    end
+end
+
+@testset "threshold <= n_input converts before the first measurement" begin
+    for m in (n_input - 1, n_input)
+        state = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(m), nothing)
+        @test state.runtime isa DummyHybridStabilizerRuntime
+        @test state.runtime.n_measurements_at_transition == 0
+        @test !any(state.runtime.activated_at_transition)
+        @test same_shots(() -> DummyHybridRuntime(m), DummyStabilizerRuntime)
+        @test same_shots(() -> HybridRuntime(m), StabilizerRuntime)
+    end
+end
+
+@testset "threshold > N never converts" begin
+    state = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(N + 1), nothing)
+    @test state.runtime isa DummyHybridRuntime
+    @test same_shots(() -> DummyHybridRuntime(N + 1), DummyHybridRuntime)
+    @test same_shots(DummyHybridRuntime, DummyRuntime)
+    @test same_shots(() -> HybridRuntime(N + 1), HybridRuntime)
+    @test same_shots(HybridRuntime, SimRuntime)
+end
+
+@testset "threshold == N still converts once every gadget is activated" begin
+    seed!(1)
+    state = PBCCompiler.run(copy(three_gadget_circuit), DummyHybridRuntime(N), nothing)
+    @test state.runtime isa DummyHybridStabilizerRuntime
+    @test all(state.runtime.activated_at_transition)
 end
 ##
 end

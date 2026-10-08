@@ -224,11 +224,16 @@ Runtime that starts out simulating the gadget register like `SimRuntime`, then
 converts in place into a `HybridStabilizerRuntime` once total qubit support
 (input qubits plus activated gadget qubits) reaches `maximum_measurement_support`.
 
-`PBCCompiler.run` drives this conversion by calling `transition` after every
-measurement step. With `maximum_measurement_support = nothing` (the default),
-it never converts and behaves exactly like `SimRuntime` for the whole run,
+`PBCCompiler.run` drives this conversion by calling `transition` once before
+the first measurement step and again after every step. A threshold at or
+below the number of input qubits therefore converts before any measurement,
+and the run behaves exactly like `StabilizerRuntime`. A threshold above the
+total qubit count (input plus gadget qubits) is never reached, and the run
+behaves exactly like `maximum_measurement_support = nothing` (the default):
+it never converts and behaves like `SimRuntime` for the whole run,
 including `SimRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification of
-an isolated gadget qubit's first touch.
+an isolated gadget qubit's first touch. A threshold equal to the total qubit
+count still converts, once every gadget qubit has been activated.
 """
 struct HybridRuntime{Q} <: AbstractRuntime
     """GeneralizedStabilizer object holding current quantum state within quantum computer"""
@@ -280,7 +285,10 @@ with a classical coin flip of a fixed bias instead of simulating the gadget
 register. With `maximum_measurement_support = nothing` (the default) it never
 converts and behaves exactly like `DummyRuntime` for the whole run, including
 `DummyRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification of an
-isolated gadget qubit's first touch.
+isolated gadget qubit's first touch. The threshold endpoints match
+`HybridRuntime`'s: at or below the number of input qubits it behaves exactly
+like `DummyStabilizerRuntime`, and above the total qubit count exactly like
+the default.
 """
 struct DummyHybridRuntime <: AbstractRuntime
     """Probability of sampling the +1 measurement outcome (the -1 outcome has probability `1 - p1_outcome_probs`)"""

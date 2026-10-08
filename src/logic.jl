@@ -382,6 +382,10 @@ end
 
 function run(input_circuit::Circuit, rt::Union{HybridRuntime,DummyHybridRuntime}, input_state::Union{Stabilizer, Nothing}=nothing)
     state = build_compilerstate(input_circuit, rt, input_state)
+    # Checked before the first step too, so a threshold at or below the input
+    # width converts before any measurement and the whole run is
+    # stabilizer-mode -- otherwise measurement 1 would always be sim-mode
+    state = transition(state)
     while !_execution_complete(state)
         state = execute!(state)
         state = transition(state)

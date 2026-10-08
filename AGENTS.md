@@ -81,8 +81,12 @@ The `preprocess_circuit` function transforms circuits through stages:
   `SimRuntime`, then converts in place into a `HybridStabilizerRuntime`
   (which behaves like `StabilizerRuntime` from that point on) once
   `maximum_measurement_support` activated gadget qubits have been reached.
-  `PBCCompiler.run` drives the conversion by calling `transition` after every
-  measurement step. With `maximum_measurement_support = nothing` (the
+  `PBCCompiler.run` drives the conversion by calling `transition` once before
+  the first measurement step and after every step, so a threshold
+  `≤ n_input` is exactly `StabilizerRuntime` and `> n_input + n_gadgets` is
+  exactly the unbounded case (a threshold equal to the full width still
+  converts once every gadget is activated). Driving `execute!` by hand never
+  converts. With `maximum_measurement_support = nothing` (the
   default) it never converts and behaves exactly like `SimRuntime`,
   including `SimRuntime`'s `collapsed`/`ClassicalBiasedRes` reclassification
   and `num_gadget_qubits`-based `to_result` sizing (both runtimes share the

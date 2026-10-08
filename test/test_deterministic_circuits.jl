@@ -195,6 +195,8 @@ end
         expected = Bool[a, b, xor(c, a & b)]
         state = run_on_basis_input_state(ccx, [a, b, c], mode, HybridRuntime(4))
         @test state.runtime isa HybridStabilizerRuntime
+        # Converted after a real pre-transition step, not before measurement 1
+        @test state.runtime.n_measurements_at_transition > 0
         @test collect(Bool, state.classical_register[1:3]) == expected
     end
 end
@@ -210,6 +212,8 @@ end
                         xor(d, maj(cin, a, b))]
         state = run_on_basis_input_state(body, [cin, a, b, d], mode, HybridRuntime(7))
         @test state.runtime isa HybridStabilizerRuntime
+        # Converted after a real pre-transition step, not before measurement 1
+        @test state.runtime.n_measurements_at_transition > 0
         @test collect(Bool, state.classical_register[1:4]) == expected
     end
 end
@@ -233,6 +237,8 @@ end
         input_bits = [cin; abits; bbits; false]
         state = run_on_basis_input_state(body, input_bits, mode, HybridRuntime(28))
         @test state.runtime isa HybridStabilizerRuntime
+        # Converted after a real pre-transition step, not before measurement 1
+        @test state.runtime.n_measurements_at_transition > 0
         @test collect(Bool, state.classical_register[1:5]) == expected
     end
 end
