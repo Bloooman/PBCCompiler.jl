@@ -20,7 +20,11 @@ which variant an operation is.
         bit::Int
         qubits::Vector{Int}
     end
-    """Apply the Pauli gate given by string `pauli` to the qubits in `qubits`."""
+    """
+    Apply the Pauli gate given by string `pauli` to the qubits in `qubits`. Not produced or
+    consumed by the compilation pipeline (which uses `ExpHalfPiPauli` for Pauli gates); retained
+    as a lightweight operation for traversal tests and benchmarks.
+    """
     struct Pauli
         pauli::P
         qubits::Vector{Int}
@@ -40,7 +44,10 @@ which variant an operation is.
         pauli::P
         qubits::Vector{Int}
     end
-    """Prepare a magic (|T⟩) ancilla state on `qubit`, entangling with the register in `qubits`."""
+    """
+    Placeholder for magic-state preparation from the original scaffolding. Not used by the
+    compilation pipeline, which gadgetizes non-Clifford rotations automatically.
+    """
     struct PrepMagic
         qubit::Int
         qubits::Vector{Int}
